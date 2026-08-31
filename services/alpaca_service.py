@@ -6,6 +6,13 @@ from alpaca.data.historical.stock import StockHistoricalDataClient
 from alpaca.data.requests import StockLatestQuoteRequest
 from tavily import TavilyClient
 
+#--------dummy technical agent to Alpaca historical candles
+from alpaca.data.timeframe import TimeFrame
+from alpaca.data.requests import StockBarsRequest
+from datetime import datetime, timedelta
+import pandas as pd
+from alpaca.data.enums import DataFeed
+
 # =========================
 # Load Environment Variables
 # =========================
@@ -18,8 +25,8 @@ load_dotenv()
 # =========================
 
 trading_client = TradingClient(
-    os.getenv("APCA_API_KEY_ID"),
-    os.getenv("APCA_API_SECRET_KEY"),
+    os.getenv("ALPACA_API_KEY"),
+    os.getenv("ALPACA_SECRET_KEY"),
     paper=True
 )
 
@@ -49,8 +56,8 @@ def get_account_info():
 # =========================
 
 data_client = StockHistoricalDataClient(
-    os.getenv("APCA_API_KEY_ID"),
-    os.getenv("APCA_API_SECRET_KEY")
+    os.getenv("ALPACA_API_KEY"),
+    os.getenv("ALPACA_SECRET_KEY")
 )
 
 def get_spy_price():
@@ -90,6 +97,30 @@ def get_market_news():
         )
 
         return result
+
+    except Exception as e:
+        return {
+            "error": str(e)
+        }
+        
+#---------------
+def get_spy_bars():
+
+    try:
+        end = datetime.now()
+        start = end - timedelta(days=90)
+
+        request = StockBarsRequest(
+            symbol_or_symbols=["SPY"],
+            timeframe=TimeFrame.Day,
+            start=start,
+            end=end,
+            feed=DataFeed.IEX
+        )
+
+        bars = data_client.get_stock_bars(request)
+
+        return bars.df.reset_index()
 
     except Exception as e:
         return {

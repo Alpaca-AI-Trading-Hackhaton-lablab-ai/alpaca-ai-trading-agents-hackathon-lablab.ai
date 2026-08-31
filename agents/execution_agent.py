@@ -1,48 +1,35 @@
-from alpaca.trading.client import TradingClient
-from alpaca.trading.requests import MarketOrderRequest
-from alpaca.trading.enums import OrderSide, TimeInForce
-import os
+import asyncio
 
-
-client = TradingClient(
-    os.getenv("APCA_API_KEY_ID"),
-    os.getenv("APCA_API_SECRET_KEY"),
-    paper=True
-)
+from services.mcp_client import place_order
 
 
 def execute_trade(decision):
 
-    if decision["decision"] == "NO_TRADE":
+    if decision["action"] == "HOLD":
         return {
-            "status": "SKIPPED",
-            "reason": "No trading signal"
+            "status": "NO_TRADE",
+            "reason": "Decision Agent returned HOLD"
         }
 
-    if decision["decision"] == "BUY_CALL":
-        side = OrderSide.BUY
+    try:
 
-    elif decision["decision"] == "BUY_PUT":
-        side = OrderSide.SELL
+        result = asyncio.run(
+            place_order(
+                symbol=decision["symbol"],
+                side=decision["action"].lower(),
+                qty=str(decision["qty"])
+            )
+        )
 
-    else:
         return {
-            "status": "INVALID_SIGNAL"
+            "status": "ORDER_SUBMITTED",
+            "decision": decision,
+            "alpaca_result": result
         }
 
-    order = MarketOrderRequest(
-        symbol="SPY",
-        qty=1,
-        side=side,
-        time_in_force=TimeInForce.DAY
-    )
+    except Exception as e:
 
-    result = client.submit_order(order)
-
-    return {
-        "status": "EXECUTED",
-        "order_id": str(result.id),
-        "symbol": result.symbol,
-        "qty": result.qty,
-        "side": str(side)
-    }
+        return {
+            "status": "FAILED",
+            "error": str(e)
+        }

@@ -1,17 +1,33 @@
-def make_decision(option_data, risk_data):
+def make_decision(
+    market_state,
+    risk
+):
 
-    if option_data["action"] == "WAIT":
-        return {
-            "decision": "NO_TRADE",
-            "reason": "Low confidence signal",
-            "risk_level": risk_data["risk_level"]
-        }
+    sentiment = market_state["sentiment"]
+    technical = market_state["technical_signal"]
+
+    max_position = risk["position_size"]   # FIX
+
+    if (
+        sentiment == "POSITIVE"
+        and technical == "BUY"
+    ):
+        action = "BUY"
+
+    elif (
+        sentiment == "NEGATIVE"
+        and technical == "SELL"
+    ):
+        action = "SELL"
+
+    else:
+        action = "HOLD"
 
     return {
-        "decision": option_data["action"],
-        "strategy": option_data["strategy"],
-        "position_size": risk_data["position_size"],
-        "max_loss": risk_data["max_loss"],
-        "take_profit": risk_data["take_profit"],
-        "risk_level": risk_data["risk_level"]
+        "symbol": market_state["symbol"],
+        "action": action,
+        "position_size": max_position,
+        "technical_signal": technical,
+        "sentiment": sentiment,
+        "risk_level": risk["risk_level"]
     }
