@@ -26,8 +26,8 @@ from services.news_service import get_market_news
 
 app = FastAPI()
 
-# El frontend (Vite/bun) corre en otro origen en desarrollo; permitir CORS.
-# Configurable con CORS_ORIGINS (coma-separado); "*" por defecto para el PoC.
+# The frontend (Vite/bun) runs on a different origin in dev; allow CORS.
+# Configurable via CORS_ORIGINS (comma-separated); defaults to "*" for the PoC.
 _origins = [
     o.strip()
     for o in os.getenv("CORS_ORIGINS", "*").split(",")
@@ -46,7 +46,7 @@ def _symbol(symbol):
     return (symbol or "SPY").upper()
 
 
-# Claves del trace, en el orden topológico del pipeline. Cada nodo = un agente.
+# Trace keys, in the pipeline's topological order. Each node = one agent.
 _PIPELINE_KEYS = (
     "news",
     "sentiment",
@@ -61,13 +61,13 @@ _PIPELINE_KEYS = (
 
 
 def _msg(node, out):
-    """Mensaje humano-legible (la 'comunicación' del nodo) a partir de su salida."""
+    """Human-readable message (the node's 'communication') built from its output."""
     try:
         if not isinstance(out, dict) and node != "news":
             return str(out)
         if node == "news":
-            n = len(out) if isinstance(out, list) else "n/d"
-            return f"{n} artículos"
+            n = len(out) if isinstance(out, list) else "n/a"
+            return f"{n} articles"
         if node == "sentiment":
             summary = (out.get("summary") or "").strip()
             head = f"{out.get('sentiment')} · {out.get('confidence')}%"
@@ -92,13 +92,13 @@ def _msg(node, out):
                 f"{out.get('action')} "
                 f"({out.get('sentiment')}×{out.get('technical_signal')})"
             )
-    except Exception:  # noqa: BLE001 - un mensaje nunca debe tumbar el pipeline
+    except Exception:  # noqa: BLE001 - a message must never crash the pipeline
         pass
     return ""
 
 
-# Cada paso: (nombre, fn(ctx) -> salida). El ctx acumula las salidas previas,
-# así que las aristas del DAG son las claves que cada fn lee del ctx.
+# Each step: (name, fn(ctx) -> output). ctx accumulates prior outputs, so the DAG
+# edges are exactly the ctx keys each fn reads.
 _STEPS = [
     ("news", lambda c: get_market_news(c["symbol"])),
     ("sentiment", lambda c: analyze_sentiment(c["news"])),
@@ -131,8 +131,8 @@ _STEPS = [
 
 
 def run_pipeline(symbol="SPY"):
-    """Ejecuta cada agente en orden y va emitiendo eventos por nodo:
-    running -> done|error. Reutilizado por _analysis, /pipeline y /pipeline/stream.
+    """Run each agent in order, emitting a per-node event as it goes:
+    running -> done|error. Reused by _analysis, /pipeline and /pipeline/stream.
     """
     ctx = {"symbol": _symbol(symbol)}
     for name, fn in _STEPS:
@@ -147,7 +147,7 @@ def run_pipeline(symbol="SPY"):
                 "message": _msg(name, out),
                 "ts": time.time(),
             }
-        except Exception as e:  # noqa: BLE001 - un nodo que falla no aborta el resto
+        except Exception as e:  # noqa: BLE001 - a failed node must not abort the rest
             err = {"error": str(e)}
             ctx[name] = err
             yield {
@@ -226,8 +226,8 @@ def decision(symbol: str = "SPY"):
 
 @app.get("/pipeline")
 def pipeline(symbol: str = "SPY"):
-    """Corre el pipeline completo y devuelve el trace por nodo + el análisis.
-    Fetch único (no-stream) para el estado inicial del widget de agentes."""
+    """Run the full pipeline and return the per-node trace + the analysis.
+    Single (non-stream) fetch for the agent widget's initial state."""
     nodes = []
     ctx = {}
     for ev in run_pipeline(symbol):
@@ -249,8 +249,8 @@ def pipeline(symbol: str = "SPY"):
 
 @app.get("/pipeline/stream")
 def pipeline_stream(symbol: str = "SPY"):
-    """SSE: emite un evento por nodo (running -> done|error) conforme cada
-    agente termina, para que el grafo se ilumine en tiempo real."""
+    """SSE: emit one event per node (running -> done|error) as each agent
+    finishes, so the graph lights up in real time."""
 
     def gen():
         for ev in run_pipeline(symbol):
