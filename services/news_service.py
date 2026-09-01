@@ -46,13 +46,15 @@ def _clean(results):
     return items
 
 
-def get_market_news(symbol="SPY"):
+def get_market_news(symbol="SPY", query=None):
     symbol = (symbol or "SPY").upper()
     api_key = os.getenv("TAVILY_API_KEY")
     if not api_key:
         return _demo_news(symbol)
 
-    query = f"{symbol} stock latest news, earnings, and market-moving headlines"
+    # `query` lets the ReAct research loop pass a specific sub-query; otherwise
+    # use the default symbol-driven news query.
+    query = query or f"{symbol} stock latest news, earnings, and market-moving headlines"
     try:
         tavily = TavilyClient(api_key=api_key)
 

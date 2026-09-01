@@ -1,0 +1,35 @@
+"""Read-only tool registry for the ReAct proposal loops.
+
+Mirrors Gemini-Claw's whitelisted `ToolRegistry`: only these read-only
+functions are reachable from a loop. No order / execute / gate tool is ever
+registered here — the loops can gather evidence, never trade.
+"""
+
+from agents.feature_agent import get_market_features
+from agents.technical_agent import technical_analysis
+from services.alpaca_service import get_account_info
+from services.news_service import get_market_news
+
+# name -> read-only callable
+REGISTRY = {
+    "get_market_news": get_market_news,
+    "get_market_features": get_market_features,
+    "technical_analysis": technical_analysis,
+    "get_account_info": get_account_info,
+}
+
+
+def subset(*names):
+    """Return a {name: callable} dict for the given allowed tool names."""
+    return {n: REGISTRY[n] for n in names if n in REGISTRY}
+
+
+def run_tool(name, **params):
+    """Validate against the allowlist and run. Off-list -> {"error": ...}."""
+    fn = REGISTRY.get(name)
+    if fn is None:
+        return {"error": f"tool not allowed: {name}"}
+    try:
+        return fn(**params)
+    except Exception as e:  # noqa: BLE001 - a bad tool call must not crash the caller
+        return {"error": str(e)}

@@ -9,14 +9,10 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 
-from agents.decision_agent import make_decision
 from agents.execution_agent import execute_trade
 from agents.execution_gate import evaluate_gate
 from agents.feature_agent import get_market_features
-from agents.market_state_agent import build_market_state
-from agents.options_agent import options_strategy
-from agents.risk_manager import calculate_risk
-from agents.sentiment_agent import analyze_sentiment
+from agents.nodes import PIPELINE_KEYS, build_pipeline
 from agents.technical_agent import technical_analysis
 from services import config
 from services.alpaca_service import (
@@ -68,126 +64,31 @@ def _audit(entry):
     return entry
 
 
-# Trace keys, in the pipeline's topological order. Each node = one agent.
-_PIPELINE_KEYS = (
-    "news",
-    "sentiment",
-    "options",
-    "features",
-    "technical",
-    "market_state",
-    "account",
-    "risk",
-    "decision",
-    "gate",
-)
-
-
-def _msg(node, out):
-    """Human-readable message (the node's 'communication') built from its output."""
+def _safe_message(agent, out):
     try:
-        if not isinstance(out, dict) and node != "news":
-            return str(out)
-        if node == "news":
-            n = len(out) if isinstance(out, list) else "n/a"
-            return f"{n} articles"
-        if node == "sentiment":
-            summary = (out.get("summary") or "").strip()
-            head = f"{out.get('sentiment')} · {out.get('confidence')}%"
-            return f"{head} — {summary[:80]}" if summary else head
-        if node == "options":
-            return f"{out.get('strategy')} / {out.get('action')}"
-        if node == "features":
-            return f"{out.get('trend')} @ {out.get('price')}"
-        if node == "technical":
-            return f"{out.get('signal')} (RSI {out.get('rsi')})"
-        if node == "market_state":
-            return (
-                f"{out.get('sentiment')} · {out.get('technical_signal')} · "
-                f"{out.get('trend')}"
-            )
-        if node == "account":
-            return f"{out.get('mode')} · {out.get('status')}"
-        if node == "risk":
-            return f"{out.get('risk_level')} · ${out.get('position_size')}"
-        if node == "decision":
-            return (
-                f"{out.get('action')} "
-                f"({out.get('sentiment')}×{out.get('technical_signal')})"
-            )
-        if node == "gate":
-            verdict = out.get("verdict")
-            if verdict == "BLOCK":
-                reasons = out.get("reasons") or []
-                head = reasons[0] if reasons else "blocked"
-                return f"BLOCK — {head}"
-            if verdict == "NO_TRADE":
-                return "NO_TRADE"
-            n = len(out.get("checks") or [])
-            return f"ALLOW · {n} checks"
+        return agent.message(out)
     except Exception:  # noqa: BLE001 - a message must never crash the pipeline
-        pass
-    return ""
+        return ""
 
 
-# Each step: (name, fn(ctx) -> output). ctx accumulates prior outputs, so the DAG
-# edges are exactly the ctx keys each fn reads.
-_STEPS = [
-    ("news", lambda c: get_market_news(c["symbol"])),
-    ("sentiment", lambda c: analyze_sentiment(c["news"])),
-    (
-        "options",
-        lambda c: options_strategy(
-            c["sentiment"].get("sentiment", "NEUTRAL"),
-            c["sentiment"].get("confidence", 0),
-            c["symbol"],
-        ),
-    ),
-    ("features", lambda c: get_market_features(c["symbol"])),
-    ("technical", lambda c: technical_analysis(c["symbol"])),
-    (
-        "market_state",
-        lambda c: build_market_state(
-            c["sentiment"], c["options"], c["features"], c["technical"]
-        ),
-    ),
-    ("account", lambda c: get_account_info()),
-    (
-        "risk",
-        lambda c: calculate_risk(
-            c["account"].get("equity", 100000),
-            c["sentiment"].get("confidence", 0),
-        ),
-    ),
-    ("decision", lambda c: make_decision(c["market_state"], c["risk"])),
-    (
-        "gate",
-        lambda c: evaluate_gate(
-            c["decision"],
-            c["account"],
-            get_positions().get("positions", []),
-            get_open_orders(c["symbol"]),
-            get_market_clock(),
-        ),
-    ),
-]
-
-
-def run_pipeline(symbol="SPY"):
-    """Run each agent in order, emitting a per-node event as it goes:
+def run_pipeline(symbol="SPY", deep=False):
+    """Run each Agent in order, emitting a per-node event as it goes:
     running -> done|error. Reused by _analysis, /pipeline and /pipeline/stream.
+    `deep` swaps in the ReAct variants for sentiment and decision (proposal
+    side only; the gate stays deterministic).
     """
     ctx = {"symbol": _symbol(symbol)}
-    for name, fn in _STEPS:
+    for agent in build_pipeline(deep):
+        name = agent.node
         yield {"node": name, "status": "running", "ts": time.time()}
         try:
-            out = fn(ctx)
+            out = agent.run(ctx)
             ctx[name] = out
             yield {
                 "node": name,
                 "status": "done",
                 "output": out,
-                "message": _msg(name, out),
+                "message": _safe_message(agent, out),
                 "ts": time.time(),
             }
         except Exception as e:  # noqa: BLE001 - a failed node must not abort the rest
@@ -203,12 +104,12 @@ def run_pipeline(symbol="SPY"):
     yield {"node": "__done__", "status": "done", "ctx": ctx, "ts": time.time()}
 
 
-def _analysis(symbol="SPY"):
+def _analysis(symbol="SPY", deep=False):
     ctx = {}
-    for ev in run_pipeline(symbol):
+    for ev in run_pipeline(symbol, deep):
         if ev["node"] == "__done__":
             ctx = ev["ctx"]
-    return {key: ctx.get(key) for key in _PIPELINE_KEYS}
+    return {key: ctx.get(key) for key in PIPELINE_KEYS}
 
 
 @app.get("/")
@@ -268,12 +169,13 @@ def decision(symbol: str = "SPY"):
 
 
 @app.get("/pipeline")
-def pipeline(symbol: str = "SPY"):
+def pipeline(symbol: str = "SPY", deep: bool = config.deep_research_default()):
     """Run the full pipeline and return the per-node trace + the analysis.
-    Single (non-stream) fetch for the agent widget's initial state."""
+    Single (non-stream) fetch for the agent widget's initial state.
+    `deep=true` enables the ReAct research/decision loops (opt-in, needs GROQ)."""
     nodes = []
     ctx = {}
-    for ev in run_pipeline(symbol):
+    for ev in run_pipeline(symbol, deep):
         if ev["node"] == "__done__":
             ctx = ev["ctx"]
             continue
@@ -286,17 +188,17 @@ def pipeline(symbol: str = "SPY"):
                     "output": ev.get("output"),
                 }
             )
-    analysis = {key: ctx.get(key) for key in _PIPELINE_KEYS}
+    analysis = {key: ctx.get(key) for key in PIPELINE_KEYS}
     return {"symbol": _symbol(symbol), "nodes": nodes, **analysis}
 
 
 @app.get("/pipeline/stream")
-def pipeline_stream(symbol: str = "SPY"):
+def pipeline_stream(symbol: str = "SPY", deep: bool = config.deep_research_default()):
     """SSE: emit one event per node (running -> done|error) as each agent
     finishes, so the graph lights up in real time."""
 
     def gen():
-        for ev in run_pipeline(symbol):
+        for ev in run_pipeline(symbol, deep):
             if ev["node"] == "__done__":
                 yield "event: done\ndata: {}\n\n"
                 continue
@@ -315,10 +217,11 @@ def pipeline_stream(symbol: str = "SPY"):
 
 
 @app.post("/execute")
-def execute(symbol: str = "SPY"):
+def execute(symbol: str = "SPY", deep: bool = config.deep_research_default()):
     """LLM proposes -> deterministic gate authorizes -> executor executes.
-    Nothing reaches the broker unless the gate ALLOWs and the system is armed."""
-    analysis = _analysis(symbol)
+    Nothing reaches the broker unless the gate ALLOWs and the system is armed.
+    `deep` only affects how the proposal is formed; the gate is unchanged."""
+    analysis = _analysis(symbol, deep)
     decision = analysis["decision"]
     gate = evaluate_gate(
         decision,

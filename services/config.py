@@ -23,11 +23,28 @@ def _pct(name, default):
         return float(default)
 
 
+def _int(name, default):
+    try:
+        return int(os.getenv(name, default))
+    except (TypeError, ValueError):
+        return int(default)
+
+
 # Env-seeded defaults.
 EXECUTE_ENABLED_DEFAULT = _flag("EXECUTE_ENABLED", False)
 KILL_SWITCH_DEFAULT = _flag("KILL_SWITCH", False)
 MAX_SYMBOL_EXPOSURE_PCT = _pct("MAX_SYMBOL_EXPOSURE_PCT", 0.10)
 MAX_TOTAL_EXPOSURE_PCT = _pct("MAX_TOTAL_EXPOSURE_PCT", 0.30)
+
+# ReAct (deep research / decision reasoning) — proposal side only, opt-in.
+DEEP_RESEARCH_DEFAULT = _flag("DEEP_RESEARCH_DEFAULT", False)
+RESEARCH_MAX_TURNS = _int("RESEARCH_MAX_TURNS", 3)
+DECISION_MAX_TURNS = _int("DECISION_MAX_TURNS", 3)
+REACT_TOOL_TIMEOUT_S = _int("REACT_TOOL_TIMEOUT_S", 8)
+
+
+def deep_research_default():
+    return DEEP_RESEARCH_DEFAULT
 
 # Runtime control state (mutable, in-process). Seeded from env at import time.
 _state = {
