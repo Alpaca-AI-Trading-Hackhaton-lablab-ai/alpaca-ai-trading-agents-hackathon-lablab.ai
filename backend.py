@@ -1,8 +1,11 @@
+import json
 import os
+import time
 import traceback
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 
 from agents.decision_agent import make_decision
 from agents.execution_agent import execute_trade
@@ -43,41 +46,126 @@ def _symbol(symbol):
     return (symbol or "SPY").upper()
 
 
-def _analysis(symbol="SPY"):
-    symbol = _symbol(symbol)
-    news = get_market_news(symbol)
-    sentiment = analyze_sentiment(news)
-    options = options_strategy(
-        sentiment.get("sentiment", "NEUTRAL"),
-        sentiment.get("confidence", 0),
-        symbol,
-    )
-    features = get_market_features(symbol)
-    technical = technical_analysis(symbol)
-    market_state = build_market_state(
-        sentiment,
-        options,
-        features,
-        technical,
-    )
-    account = get_account_info()
-    risk = calculate_risk(
-        account.get("equity", 100000),
-        sentiment.get("confidence", 0),
-    )
-    decision = make_decision(market_state, risk)
+# Claves del trace, en el orden topológico del pipeline. Cada nodo = un agente.
+_PIPELINE_KEYS = (
+    "news",
+    "sentiment",
+    "options",
+    "features",
+    "technical",
+    "market_state",
+    "account",
+    "risk",
+    "decision",
+)
 
-    return {
-        "news": news,
-        "sentiment": sentiment,
-        "options": options,
-        "features": features,
-        "technical": technical,
-        "market_state": market_state,
-        "account": account,
-        "risk": risk,
-        "decision": decision,
-    }
+
+def _msg(node, out):
+    """Mensaje humano-legible (la 'comunicación' del nodo) a partir de su salida."""
+    try:
+        if not isinstance(out, dict) and node != "news":
+            return str(out)
+        if node == "news":
+            n = len(out) if isinstance(out, list) else "n/d"
+            return f"{n} artículos"
+        if node == "sentiment":
+            summary = (out.get("summary") or "").strip()
+            head = f"{out.get('sentiment')} · {out.get('confidence')}%"
+            return f"{head} — {summary[:80]}" if summary else head
+        if node == "options":
+            return f"{out.get('strategy')} / {out.get('action')}"
+        if node == "features":
+            return f"{out.get('trend')} @ {out.get('price')}"
+        if node == "technical":
+            return f"{out.get('signal')} (RSI {out.get('rsi')})"
+        if node == "market_state":
+            return (
+                f"{out.get('sentiment')} · {out.get('technical_signal')} · "
+                f"{out.get('trend')}"
+            )
+        if node == "account":
+            return f"{out.get('mode')} · {out.get('status')}"
+        if node == "risk":
+            return f"{out.get('risk_level')} · ${out.get('position_size')}"
+        if node == "decision":
+            return (
+                f"{out.get('action')} "
+                f"({out.get('sentiment')}×{out.get('technical_signal')})"
+            )
+    except Exception:  # noqa: BLE001 - un mensaje nunca debe tumbar el pipeline
+        pass
+    return ""
+
+
+# Cada paso: (nombre, fn(ctx) -> salida). El ctx acumula las salidas previas,
+# así que las aristas del DAG son las claves que cada fn lee del ctx.
+_STEPS = [
+    ("news", lambda c: get_market_news(c["symbol"])),
+    ("sentiment", lambda c: analyze_sentiment(c["news"])),
+    (
+        "options",
+        lambda c: options_strategy(
+            c["sentiment"].get("sentiment", "NEUTRAL"),
+            c["sentiment"].get("confidence", 0),
+            c["symbol"],
+        ),
+    ),
+    ("features", lambda c: get_market_features(c["symbol"])),
+    ("technical", lambda c: technical_analysis(c["symbol"])),
+    (
+        "market_state",
+        lambda c: build_market_state(
+            c["sentiment"], c["options"], c["features"], c["technical"]
+        ),
+    ),
+    ("account", lambda c: get_account_info()),
+    (
+        "risk",
+        lambda c: calculate_risk(
+            c["account"].get("equity", 100000),
+            c["sentiment"].get("confidence", 0),
+        ),
+    ),
+    ("decision", lambda c: make_decision(c["market_state"], c["risk"])),
+]
+
+
+def run_pipeline(symbol="SPY"):
+    """Ejecuta cada agente en orden y va emitiendo eventos por nodo:
+    running -> done|error. Reutilizado por _analysis, /pipeline y /pipeline/stream.
+    """
+    ctx = {"symbol": _symbol(symbol)}
+    for name, fn in _STEPS:
+        yield {"node": name, "status": "running", "ts": time.time()}
+        try:
+            out = fn(ctx)
+            ctx[name] = out
+            yield {
+                "node": name,
+                "status": "done",
+                "output": out,
+                "message": _msg(name, out),
+                "ts": time.time(),
+            }
+        except Exception as e:  # noqa: BLE001 - un nodo que falla no aborta el resto
+            err = {"error": str(e)}
+            ctx[name] = err
+            yield {
+                "node": name,
+                "status": "error",
+                "output": err,
+                "message": str(e),
+                "ts": time.time(),
+            }
+    yield {"node": "__done__", "status": "done", "ctx": ctx, "ts": time.time()}
+
+
+def _analysis(symbol="SPY"):
+    ctx = {}
+    for ev in run_pipeline(symbol):
+        if ev["node"] == "__done__":
+            ctx = ev["ctx"]
+    return {key: ctx.get(key) for key in _PIPELINE_KEYS}
 
 
 @app.get("/")
@@ -134,6 +222,53 @@ def market_state(symbol: str = "SPY"):
 @app.get("/decision")
 def decision(symbol: str = "SPY"):
     return _analysis(symbol)["decision"]
+
+
+@app.get("/pipeline")
+def pipeline(symbol: str = "SPY"):
+    """Corre el pipeline completo y devuelve el trace por nodo + el análisis.
+    Fetch único (no-stream) para el estado inicial del widget de agentes."""
+    nodes = []
+    ctx = {}
+    for ev in run_pipeline(symbol):
+        if ev["node"] == "__done__":
+            ctx = ev["ctx"]
+            continue
+        if ev["status"] in ("done", "error"):
+            nodes.append(
+                {
+                    "node": ev["node"],
+                    "status": ev["status"],
+                    "message": ev.get("message"),
+                    "output": ev.get("output"),
+                }
+            )
+    analysis = {key: ctx.get(key) for key in _PIPELINE_KEYS}
+    return {"symbol": _symbol(symbol), "nodes": nodes, **analysis}
+
+
+@app.get("/pipeline/stream")
+def pipeline_stream(symbol: str = "SPY"):
+    """SSE: emite un evento por nodo (running -> done|error) conforme cada
+    agente termina, para que el grafo se ilumine en tiempo real."""
+
+    def gen():
+        for ev in run_pipeline(symbol):
+            if ev["node"] == "__done__":
+                yield "event: done\ndata: {}\n\n"
+                continue
+            payload = {k: v for k, v in ev.items() if k != "ctx"}
+            yield f"event: node\ndata: {json.dumps(payload, default=str)}\n\n"
+
+    return StreamingResponse(
+        gen(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 @app.post("/execute")
