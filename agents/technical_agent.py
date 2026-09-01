@@ -2,9 +2,9 @@ from services.alpaca_service import get_spy_bars
 import pandas as pd
 
 
-def technical_analysis():
+def technical_analysis(symbol="SPY"):
 
-    df = get_spy_bars()
+    df = get_spy_bars(symbol)
 
     # Agar service error return kare
     if isinstance(df, dict):
@@ -41,7 +41,7 @@ def technical_analysis():
         signal = "HOLD"
 
     return {
-        "symbol": "SPY",
+        "symbol": symbol.upper(),
         "price": price,
         "rsi": rsi_value,
         "sma20": round(float(sma20), 2),

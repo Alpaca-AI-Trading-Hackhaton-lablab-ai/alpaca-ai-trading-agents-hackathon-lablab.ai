@@ -8,3 +8,4 @@ langchain-groq
 tavily-python
 streamlit
 pydantic
+mcp

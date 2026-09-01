@@ -33,3 +33,19 @@ async def place_order(
             )
 
             return result
+
+
+async def get_tools():
+
+    server = StdioServerParameters(
+        command="alpaca-mcp-server",
+        args=["--env-file", ".env"]
+    )
+
+    async with stdio_client(server) as (read, write):
+
+        async with ClientSession(read, write) as session:
+
+            await session.initialize()
+
+            return await session.list_tools()

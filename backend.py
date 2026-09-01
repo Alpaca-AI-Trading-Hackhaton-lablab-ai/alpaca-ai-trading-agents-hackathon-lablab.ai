@@ -1,23 +1,61 @@
+import traceback
+
 from fastapi import FastAPI
 
-# Services
-from services.alpaca_service import (
-    get_account_info,
-    get_spy_price
-)
-from services.news_service import get_market_news
-
-# Agents
-from agents.sentiment_agent import analyze_sentiment
-from agents.feature_agent import get_market_features
-from agents.technical_agent import technical_analysis
-from agents.options_agent import options_strategy
-from agents.risk_manager import calculate_risk
-from agents.market_state_agent import build_market_state
 from agents.decision_agent import make_decision
 from agents.execution_agent import execute_trade
+from agents.feature_agent import get_market_features
+from agents.market_state_agent import build_market_state
+from agents.options_agent import options_strategy
+from agents.risk_manager import calculate_risk
+from agents.sentiment_agent import analyze_sentiment
+from agents.technical_agent import technical_analysis
+from services.alpaca_service import get_account_info, get_spy_price
+from services.mcp_client import get_tools
+from services.news_service import get_market_news
 
 app = FastAPI()
+
+
+def _symbol(symbol):
+    return (symbol or "SPY").upper()
+
+
+def _analysis(symbol="SPY"):
+    symbol = _symbol(symbol)
+    news = get_market_news(symbol)
+    sentiment = analyze_sentiment(news)
+    options = options_strategy(
+        sentiment.get("sentiment", "NEUTRAL"),
+        sentiment.get("confidence", 0),
+        symbol,
+    )
+    features = get_market_features(symbol)
+    technical = technical_analysis(symbol)
+    market_state = build_market_state(
+        sentiment,
+        options,
+        features,
+        technical,
+    )
+    account = get_account_info()
+    risk = calculate_risk(
+        account.get("equity", 100000),
+        sentiment.get("confidence", 0),
+    )
+    decision = make_decision(market_state, risk)
+
+    return {
+        "news": news,
+        "sentiment": sentiment,
+        "options": options,
+        "features": features,
+        "technical": technical,
+        "market_state": market_state,
+        "account": account,
+        "risk": risk,
+        "decision": decision,
+    }
 
 
 @app.get("/")
@@ -31,177 +69,78 @@ def account():
 
 
 @app.get("/spy")
-def spy():
-    return get_spy_price()
+def spy(symbol: str = "SPY"):
+    return get_spy_price(symbol)
 
 
 @app.get("/news")
-def news():
-    return get_market_news()
+def news(symbol: str = "SPY"):
+    return get_market_news(symbol)
 
 
 @app.get("/sentiment")
-def sentiment():
-    news = get_market_news()
-    return analyze_sentiment(news)
+def sentiment(symbol: str = "SPY"):
+    return _analysis(symbol)["sentiment"]
 
 
 @app.get("/features")
-def features():
-    return get_market_features()
+def features(symbol: str = "SPY"):
+    return get_market_features(symbol)
 
 
 @app.get("/technical")
-def technical():
-    return technical_analysis()
+def technical(symbol: str = "SPY"):
+    return technical_analysis(symbol)
 
 
 @app.get("/options")
-def options():
-    news = get_market_news()
-    sentiment = analyze_sentiment(news)
-
-    return options_strategy(
-        sentiment["sentiment"],
-        sentiment["confidence"]
-    )
+def options(symbol: str = "SPY"):
+    result = _analysis(symbol)
+    return result["options"]
 
 
 @app.get("/risk")
-def risk():
-    news = get_market_news()
-    sentiment = analyze_sentiment(news)
-    account = get_account_info()
-
-    return calculate_risk(
-        account["equity"],
-        sentiment["confidence"]
-    )
+def risk(symbol: str = "SPY"):
+    return _analysis(symbol)["risk"]
 
 
 @app.get("/market-state")
-def market_state():
-
-    news = get_market_news()
-    sentiment = analyze_sentiment(news)
-
-    options = options_strategy(
-        sentiment["sentiment"],
-        sentiment["confidence"]
-    )
-
-    features = get_market_features()
-    technical = technical_analysis()
-
-    return build_market_state(
-        sentiment,
-        options,
-        features,
-        technical
-    )
+def market_state(symbol: str = "SPY"):
+    return _analysis(symbol)["market_state"]
 
 
 @app.get("/decision")
-def decision():
-
-    try:
-        news = get_market_news()
-        sentiment = analyze_sentiment(news)
-
-        options = options_strategy(
-            sentiment["sentiment"],
-            sentiment["confidence"]
-        )
-
-        features = get_market_features()
-        technical = technical_analysis()
-
-        market_state = build_market_state(
-            sentiment,
-            options,
-            features,
-            technical
-        )
-
-        account = get_account_info()
-
-        risk = calculate_risk(
-            account["equity"],
-            sentiment["confidence"]
-        )
-
-        return make_decision(
-            market_state,
-            risk
-        )
-
-    except Exception as e:
-        return {"error": str(e)}
+def decision(symbol: str = "SPY"):
+    return _analysis(symbol)["decision"]
 
 
 @app.get("/execute")
-def execute():
+def execute(symbol: str = "SPY"):
+    result = _analysis(symbol)
+    return execute_trade(result["decision"])
 
-    news = get_market_news()
-    sentiment = analyze_sentiment(news)
-
-    options = options_strategy(
-        sentiment["sentiment"],
-        sentiment["confidence"]
-    )
-
-    features = get_market_features()
-    technical = technical_analysis()
-
-    market_state = build_market_state(
-        sentiment,
-        options,
-        features,
-        technical
-    )
-
-    account = get_account_info()
-
-    risk = calculate_risk(
-        account["equity"],
-        sentiment["confidence"]
-    )
-
-    decision = make_decision(
-        market_state,
-        risk
-    )
-
-    return execute_trade(decision)
-
-
-# MCP TEST ENDPOINT
-from services.mcp_client import get_tools
-import traceback
 
 @app.get("/mcp-tools")
 async def mcp_tools():
-
     try:
         result = await get_tools()
 
         return {
             "success": True,
-            "tools": str(result)
+            "tools": str(result),
         }
 
     except Exception as e:
-
         return {
             "success": False,
             "error": str(e),
-            "traceback": traceback.format_exc()
+            "traceback": traceback.format_exc(),
         }
-        
-#----------------------------
-from services.mcp_client import place_order
+
 
 @app.get("/buy")
 async def buy():
-
-    return await place_order()
+    return {
+        "status": "DISABLED",
+        "reason": "Use /execute only after server-side dry-run and confirmation are implemented.",
+    }
