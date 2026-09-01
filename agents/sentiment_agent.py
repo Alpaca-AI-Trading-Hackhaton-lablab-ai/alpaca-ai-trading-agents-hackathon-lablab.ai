@@ -28,6 +28,7 @@ def _normalize_news(news):
                 {
                     "title": item.get("title", "Untitled"),
                     "content": item.get("content") or item.get("summary") or "",
+                    "published_date": item.get("published_date", ""),
                 }
             )
     return items
@@ -51,7 +52,9 @@ def analyze_sentiment(news):
 
     raw_news = ""
     for item in items:
+        date = item.get("published_date") or "date unknown"
         raw_news += f"""
+Date: {date}
 Headline: {item['title']}
 Summary: {item['content']}
 
@@ -69,7 +72,8 @@ Summary: {item['content']}
                     content=f"""
 You are a professional stock market analyst.
 
-Analyze these stock market news articles.
+Analyze these stock market news articles. Weight more recent headlines
+(see each article's Date) more heavily than older ones.
 
 Return ONLY valid JSON.
 
