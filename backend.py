@@ -2,6 +2,8 @@ import json
 import os
 import time
 import traceback
+from collections import deque
+from datetime import datetime, timezone
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -9,14 +11,18 @@ from fastapi.responses import StreamingResponse
 
 from agents.decision_agent import make_decision
 from agents.execution_agent import execute_trade
+from agents.execution_gate import evaluate_gate
 from agents.feature_agent import get_market_features
 from agents.market_state_agent import build_market_state
 from agents.options_agent import options_strategy
 from agents.risk_manager import calculate_risk
 from agents.sentiment_agent import analyze_sentiment
 from agents.technical_agent import technical_analysis
+from services import config
 from services.alpaca_service import (
     get_account_info,
+    get_market_clock,
+    get_open_orders,
     get_order_status,
     get_positions,
     get_spy_price,
@@ -46,6 +52,22 @@ def _symbol(symbol):
     return (symbol or "SPY").upper()
 
 
+# Audit trail: why an order was sent or blocked. In-memory ring + JSONL file.
+_AUDIT = deque(maxlen=50)
+_AUDIT_FILE = os.path.join(os.path.dirname(__file__), "audit.log")
+
+
+def _audit(entry):
+    entry = {"ts": datetime.now(timezone.utc).isoformat(), **entry}
+    _AUDIT.appendleft(entry)
+    try:
+        with open(_AUDIT_FILE, "a", encoding="utf-8") as f:
+            f.write(json.dumps(entry, default=str) + "\n")
+    except Exception:  # noqa: BLE001 - auditing must never break execution
+        pass
+    return entry
+
+
 # Trace keys, in the pipeline's topological order. Each node = one agent.
 _PIPELINE_KEYS = (
     "news",
@@ -57,6 +79,7 @@ _PIPELINE_KEYS = (
     "account",
     "risk",
     "decision",
+    "gate",
 )
 
 
@@ -92,6 +115,16 @@ def _msg(node, out):
                 f"{out.get('action')} "
                 f"({out.get('sentiment')}×{out.get('technical_signal')})"
             )
+        if node == "gate":
+            verdict = out.get("verdict")
+            if verdict == "BLOCK":
+                reasons = out.get("reasons") or []
+                head = reasons[0] if reasons else "blocked"
+                return f"BLOCK — {head}"
+            if verdict == "NO_TRADE":
+                return "NO_TRADE"
+            n = len(out.get("checks") or [])
+            return f"ALLOW · {n} checks"
     except Exception:  # noqa: BLE001 - a message must never crash the pipeline
         pass
     return ""
@@ -127,6 +160,16 @@ _STEPS = [
         ),
     ),
     ("decision", lambda c: make_decision(c["market_state"], c["risk"])),
+    (
+        "gate",
+        lambda c: evaluate_gate(
+            c["decision"],
+            c["account"],
+            get_positions().get("positions", []),
+            get_open_orders(c["symbol"]),
+            get_market_clock(),
+        ),
+    ),
 ]
 
 
@@ -273,8 +316,114 @@ def pipeline_stream(symbol: str = "SPY"):
 
 @app.post("/execute")
 def execute(symbol: str = "SPY"):
-    result = _analysis(symbol)
-    return execute_trade(result["decision"])
+    """LLM proposes -> deterministic gate authorizes -> executor executes.
+    Nothing reaches the broker unless the gate ALLOWs and the system is armed."""
+    analysis = _analysis(symbol)
+    decision = analysis["decision"]
+    gate = evaluate_gate(
+        decision,
+        analysis["account"],
+        get_positions().get("positions", []),
+        get_open_orders(_symbol(symbol)),
+        get_market_clock(),
+    )
+
+    def _record(status, extra=None):
+        _audit(
+            {
+                "symbol": _symbol(symbol),
+                "action": (decision or {}).get("action"),
+                "verdict": gate["verdict"],
+                "status": status,
+                "notional": gate.get("notional"),
+                "order_id": (extra or {}).get("order_id"),
+                "reasons": gate.get("reasons"),
+            }
+        )
+
+    if gate["verdict"] == "NO_TRADE":
+        _record("NO_TRADE")
+        return {
+            "status": "NO_TRADE",
+            "reason": (gate["reasons"] or ["HOLD"])[0],
+            "gate": gate,
+            "decision": decision,
+        }
+
+    if gate["verdict"] == "BLOCK":
+        _record("BLOCKED")
+        return {
+            "status": "BLOCKED",
+            "reason": (gate["reasons"] or ["blocked"])[0],
+            "gate": gate,
+            "decision": decision,
+        }
+
+    # verdict == ALLOW
+    if not config.is_armed():
+        _record("DRY_RUN")
+        side = "sell" if decision["action"] == "SELL" else "buy"
+        return {
+            "status": "DRY_RUN",
+            "reason": "System not armed (EXECUTE_ENABLED=false)",
+            "would_call": {
+                "tool": "place_stock_order",
+                "symbol": decision["symbol"],
+                "side": side,
+                "notional_position_size": decision["position_size"],
+            },
+            "gate": gate,
+            "decision": decision,
+        }
+
+    result = execute_trade(decision)
+    result["gate"] = gate
+    _record(result.get("status"), result)
+    return result
+
+
+@app.get("/control")
+def control():
+    return config.control_state()
+
+
+@app.post("/control/arm")
+def control_arm(enabled: bool = True):
+    config.set_armed(enabled)
+    _audit(
+        {
+            "symbol": None,
+            "action": "ARM",
+            "verdict": None,
+            "status": "ARMED" if enabled else "SAFE",
+            "notional": None,
+            "order_id": None,
+            "reasons": None,
+        }
+    )
+    return config.control_state()
+
+
+@app.post("/control/kill")
+def control_kill(enabled: bool = True):
+    config.set_kill(enabled)
+    _audit(
+        {
+            "symbol": None,
+            "action": "KILL",
+            "verdict": None,
+            "status": "KILL" if enabled else "CLEARED",
+            "notional": None,
+            "order_id": None,
+            "reasons": None,
+        }
+    )
+    return config.control_state()
+
+
+@app.get("/audit")
+def audit(limit: int = 20):
+    return {"entries": list(_AUDIT)[:limit]}
 
 
 @app.get("/positions")

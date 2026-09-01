@@ -8,8 +8,8 @@ from alpaca.data.historical.stock import StockHistoricalDataClient
 from alpaca.data.requests import StockBarsRequest, StockLatestQuoteRequest
 from alpaca.data.timeframe import TimeFrame
 from alpaca.trading.client import TradingClient
-from alpaca.trading.enums import OrderSide, TimeInForce
-from alpaca.trading.requests import MarketOrderRequest
+from alpaca.trading.enums import OrderSide, QueryOrderStatus, TimeInForce
+from alpaca.trading.requests import GetOrdersRequest, MarketOrderRequest
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -264,6 +264,48 @@ def get_order_status(order_id):
 
     except Exception as e:
         return {"order_id": str(order_id), "status": "unknown", "warning": str(e)}
+
+
+def get_open_orders(symbol=None):
+    """Open (working) orders resting at the paper broker, normalized to dicts.
+    Optionally filtered by symbol. Demo mode has no broker -> empty list.
+    Used by the execution gate to enforce one working order per symbol."""
+    if not _has_alpaca_credentials():
+        return []
+
+    try:
+        symbols = [_symbol(symbol)] if symbol else None
+        request = GetOrdersRequest(status=QueryOrderStatus.OPEN, symbols=symbols)
+        orders = _get_trading_client().get_orders(filter=request)
+        return [_order_dict(o) for o in orders]
+
+    except Exception:
+        # Fail-closed is the caller's job; here we just report "unknown" safely.
+        return []
+
+
+def get_market_clock():
+    """Market session state. Informational for the gate (a closed market still
+    ALLOWs; the paper broker queues the DAY order). Demo -> weekday heuristic."""
+    if not _has_alpaca_credentials():
+        now = datetime.now()
+        weekday = now.weekday() < 5
+        regular = 9 <= now.hour < 16
+        return {"is_open": bool(weekday and regular), "mode": "demo"}
+
+    try:
+        clock = _get_trading_client().get_clock()
+        return {
+            "is_open": bool(clock.is_open),
+            "next_open": clock.next_open.isoformat() if clock.next_open else None,
+            "next_close": (
+                clock.next_close.isoformat() if clock.next_close else None
+            ),
+            "mode": "paper",
+        }
+
+    except Exception as e:
+        return {"is_open": False, "mode": "demo", "warning": str(e)}
 
 
 def get_positions():
