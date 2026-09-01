@@ -1,4 +1,6 @@
 def calculate_risk(account_balance, confidence):
+    account_balance = float(account_balance or 100000)
+    confidence = float(confidence or 0)
 
     # Risk based on confidence
 

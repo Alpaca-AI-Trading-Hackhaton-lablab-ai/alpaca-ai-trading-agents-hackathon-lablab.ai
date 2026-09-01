@@ -9,13 +9,13 @@ def make_decision(
     max_position = risk["position_size"]   # FIX
 
     if (
-        sentiment == "POSITIVE"
+        sentiment in ("POSITIVE", "BULLISH")
         and technical == "BUY"
     ):
         action = "BUY"
 
     elif (
-        sentiment == "NEGATIVE"
+        sentiment in ("NEGATIVE", "BEARISH")
         and technical == "SELL"
     ):
         action = "SELL"
