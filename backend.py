@@ -1,6 +1,8 @@
+import os
 import traceback
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
 from agents.decision_agent import make_decision
 from agents.execution_agent import execute_trade
@@ -10,11 +12,31 @@ from agents.options_agent import options_strategy
 from agents.risk_manager import calculate_risk
 from agents.sentiment_agent import analyze_sentiment
 from agents.technical_agent import technical_analysis
-from services.alpaca_service import get_account_info, get_spy_price
+from services.alpaca_service import (
+    get_account_info,
+    get_order_status,
+    get_positions,
+    get_spy_price,
+)
 from services.mcp_client import get_tools
 from services.news_service import get_market_news
 
 app = FastAPI()
+
+# El frontend (Vite/bun) corre en otro origen en desarrollo; permitir CORS.
+# Configurable con CORS_ORIGINS (coma-separado); "*" por defecto para el PoC.
+_origins = [
+    o.strip()
+    for o in os.getenv("CORS_ORIGINS", "*").split(",")
+    if o.strip()
+]
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=_origins or ["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 def _symbol(symbol):
@@ -114,10 +136,20 @@ def decision(symbol: str = "SPY"):
     return _analysis(symbol)["decision"]
 
 
-@app.get("/execute")
+@app.post("/execute")
 def execute(symbol: str = "SPY"):
     result = _analysis(symbol)
     return execute_trade(result["decision"])
+
+
+@app.get("/positions")
+def positions():
+    return get_positions()
+
+
+@app.get("/order/{order_id}")
+def order(order_id: str):
+    return get_order_status(order_id)
 
 
 @app.get("/mcp-tools")
