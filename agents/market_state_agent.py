@@ -6,23 +6,23 @@ def build_market_state(
 ):
 
     return {
-        "symbol": "SPY",
+        "symbol": features.get("symbol", options.get("symbol", "SPY")),
 
         # Sentiment
-        "sentiment": sentiment["sentiment"],
-        "confidence": sentiment["confidence"],
-        "trade_bias": sentiment["trade_bias"],
+        "sentiment": sentiment.get("sentiment", "NEUTRAL"),
+        "confidence": sentiment.get("confidence", 0),
+        "trade_bias": sentiment.get("trade_bias", "WAIT"),
 
         # Feature Agent
-        "trend": features["trend"],
-        "price": features["price"],
+        "trend": features.get("trend", "NEUTRAL"),
+        "price": features.get("price", 100.0),
 
         # Technical Agent
-        "rsi": technical["rsi"],
-        "sma20": technical["sma20"],
-        "sma50": technical["sma50"],
-        "technical_signal": technical["signal"],
+        "rsi": technical.get("rsi", 50),
+        "sma20": technical.get("sma20", features.get("sma20", 99)),
+        "sma50": technical.get("sma50", features.get("sma50", 97)),
+        "technical_signal": technical.get("signal", "HOLD"),
 
         # Options Agent
-        "option_strategy": options["strategy"]
+        "option_strategy": options.get("strategy", "NO_TRADE")
     }
