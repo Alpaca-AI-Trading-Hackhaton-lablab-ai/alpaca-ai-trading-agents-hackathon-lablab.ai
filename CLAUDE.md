@@ -30,7 +30,8 @@ agents/               One node per function: sentiment, options, feature, techni
                       market_state, risk, decision, execution (pure executor),
                       execution_gate (the deterministic governor).
 services/             alpaca_service (paper client, orders, positions, clock, open orders),
-                      news_service (Tavily), config (flags + runtime arm/kill state), mcp_client.
+                      news_service (Tavily), config (flags + runtime arm/kill state), mcp_client,
+                      db / cache / secrets / persist / logs (Postgres + Redis).
 docs/                 Living documentation (obey it; update it when behavior changes).
 .env / .env.example   Secrets (gitignored) / empty template.
 ```
@@ -60,7 +61,9 @@ saying so.
 ## Configuration
 
 - `.env` (see `.env.example`): Alpaca paper keys (required for fills), `GROQ_API_KEY` /
-  `TAVILY_API_KEY` (optional → degrade to NEUTRAL/demo), `CORS_ORIGINS`.
+  `TAVILY_API_KEY` (optional → degrade to NEUTRAL/demo), `CORS_ORIGINS`, `DATABASE_URL`,
+  `REDIS_URL` (required at uvicorn startup; `docker compose up -d`).
+- Keys in Postgres override `.env` when set. `GET /settings` never returns key values.
 - Execution edge: `EXECUTE_ENABLED` (arm-to-execute, default false), `KILL_SWITCH`,
   `MAX_SYMBOL_EXPOSURE_PCT` (0.10), `MAX_TOTAL_EXPOSURE_PCT` (0.30), `TAVILY_NEWS_DAYS`,
   `TAVILY_MAX_RESULTS`. Read them through `services/config.py`.
@@ -68,9 +71,10 @@ saying so.
 ## Frontend contract
 
 The UI types are coupled to these responses: `PocMarketState`, `PocRisk`, `PocDecision`,
-`PocAccount`, `PocOrderResult`, `PocGate`, `PocControl`, `PocPipelineNode`. Keep the shapes and the
-SSE event names (`node`, `done`) stable, or update `tradelix-poc-web/src/api/market-client.ts` in
-the same step. CORS via `CORS_ORIGINS` (Vite proxies `/api` → `:8000`).
+`PocAccount`, `PocOrderResult`, `PocGate`, `PocControl`, `PocPipelineNode`, `PocSettings`,
+`PocInvocation`. Keep the shapes and the SSE event names (`node`, `react`, `done`) stable, or
+update `tradelix-poc-web/src/api/market-client.ts` in the same step. CORS via `CORS_ORIGINS`
+(Vite proxies `/api` → `:8000`).
 
 ## Git & operation
 

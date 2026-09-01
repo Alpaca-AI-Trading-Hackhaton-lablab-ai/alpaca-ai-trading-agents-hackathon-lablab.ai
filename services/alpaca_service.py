@@ -12,6 +12,8 @@ from alpaca.trading.enums import OrderSide, QueryOrderStatus, TimeInForce
 from alpaca.trading.requests import GetOrdersRequest, MarketOrderRequest
 from dotenv import load_dotenv
 
+from services import cache, secrets
+
 load_dotenv()
 
 DEMO_PRICES = {
@@ -32,7 +34,14 @@ def _symbol(symbol):
 
 
 def _has_alpaca_credentials():
-    return bool(os.getenv("ALPACA_API_KEY") and os.getenv("ALPACA_SECRET_KEY"))
+    return secrets.has_alpaca_credentials()
+
+
+def reset_clients():
+    """Drop cached alpaca-py clients after API keys change in the DB."""
+    global _trading_client, _data_client
+    _trading_client = None
+    _data_client = None
 
 
 def _assert_paper():
@@ -50,8 +59,8 @@ def _get_trading_client():
     if _trading_client is None:
         _assert_paper()
         _trading_client = TradingClient(
-            os.getenv("ALPACA_API_KEY"),
-            os.getenv("ALPACA_SECRET_KEY"),
+            secrets.alpaca_api_key(),
+            secrets.alpaca_secret_key(),
             paper=True,
         )
     return _trading_client
@@ -61,8 +70,8 @@ def _get_data_client():
     global _data_client
     if _data_client is None:
         _data_client = StockHistoricalDataClient(
-            os.getenv("ALPACA_API_KEY"),
-            os.getenv("ALPACA_SECRET_KEY"),
+            secrets.alpaca_api_key(),
+            secrets.alpaca_secret_key(),
         )
     return _data_client
 
@@ -96,7 +105,7 @@ def _demo_bars(symbol):
     return pd.DataFrame(rows)
 
 
-def get_account_info():
+def _fetch_account_info():
     if not _has_alpaca_credentials():
         return {
             "equity": 100000.0,
@@ -127,6 +136,10 @@ def get_account_info():
             "mode": "demo",
             "warning": str(e),
         }
+
+
+def get_account_info():
+    return cache.cached("account", "_", "_", cache.TTL_ACCOUNT, _fetch_account_info)
 
 
 def get_spy_price(symbol="SPY"):

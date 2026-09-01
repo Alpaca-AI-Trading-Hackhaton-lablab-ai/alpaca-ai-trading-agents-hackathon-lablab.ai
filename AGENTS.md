@@ -41,18 +41,20 @@ its `/api` proxy. Style modeled on the `ap-base-fastapi-uv-service` base, focuse
 
 - Do not break the separation: `backend.py` (FastAPI app + `run_pipeline` + endpoints), `agents/`
   (one function per pipeline node; `execution_agent` = pure executor, `execution_gate` = governor),
-  `services/` (`alpaca_service`, `news_service`, `config`, `mcp_client`), `docs/`.
+  `services/` (`alpaca_service`, `news_service`, `config`, `mcp_client`, `db`, `cache`, `secrets`,
+  `persist`, `logs`), `docs/`.
 - Pipeline topological order:
   `news → sentiment → options; features; technical; account → market_state → risk → decision → gate`
   (execution runs only via `POST /execute`).
 - Each node is a function of the accumulated `ctx`; keep `_STEPS`, `_PIPELINE_KEYS`, and the `_msg()`
   branch in sync when adding/renaming a node.
-- SSE (`/pipeline/stream`) uses a **synchronous** generator (threadpool). Do not make the pipeline
+- SSE (`/pipeline/stream`) uses a **synchronous** generator (threadpool). Events: `node`, `react` (ReAct thought/tool/observation), `done`. Do not make the pipeline
   `async` or block the event loop; do not re-split the Alpaca client/account (all reads and writes
   share one paper account — that bug is fixed, keep it fixed).
 - New env flags go in **both** `services/config.py` and `.env.example` (commented). Read them through
-  `config`, not scattered `os.getenv`. Money is **notional dollars** (`position_size`), sent as
-  `notional=`; never confuse it with share `qty`.
+  `config`, not scattered `os.getenv`. API keys resolve DB-then-env via `services/secrets.py`.
+  `DATABASE_URL` and `REDIS_URL` are required at uvicorn startup. Money is **notional dollars**
+  (`position_size`), sent as `notional=`; never confuse it with share `qty`.
 
 ## Verification (required before closing)
 
@@ -71,7 +73,7 @@ curl -N "http://127.0.0.1:8000/pipeline/stream?symbol=AAPL"   # watch nodes stre
 - When a change affects behavior, update the associated docs (that folder's and the frontend
   contract) in the same commit. Changing a response shape breaks the UI types
   (`tradelix-poc-web/src/api/market-client.ts`): `PocMarketState`, `PocDecision`, `PocOrderResult`,
-  `PocGate`, `PocControl`, `PocPipelineNode`, and the SSE event names (`node`, `done`). Do not change
+  `PocGate`, `PocControl`, `PocPipelineNode`, `PocReactTurn`, `PocModelsCatalog`, and the SSE event names (`node`, `react`, `done`). Do not change
   them without updating the UI in the same step.
 - Do not store secrets in `.env.example`, docs, or tests.
 - **Do not leave servers or processes (uvicorn, vite) running without saying so.**

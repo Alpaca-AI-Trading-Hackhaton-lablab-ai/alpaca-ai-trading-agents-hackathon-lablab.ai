@@ -8,7 +8,14 @@ registered here — the loops can gather evidence, never trade.
 from agents.feature_agent import get_market_features
 from agents.technical_agent import technical_analysis
 from services.alpaca_service import get_account_info
+from services.logs import recent_for_agents
 from services.news_service import get_market_news
+
+
+def recent_history(symbol="SPY", limit=10):
+    """Read-only compact invocation history for this symbol. No secrets, no OHLCV."""
+    return recent_for_agents(symbol, limit=limit)
+
 
 # name -> read-only callable
 REGISTRY = {
@@ -16,6 +23,7 @@ REGISTRY = {
     "get_market_features": get_market_features,
     "technical_analysis": technical_analysis,
     "get_account_info": get_account_info,
+    "recent_history": recent_history,
 }
 
 

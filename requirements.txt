@@ -1,4 +1,4 @@
-fastapi
+fastapi>=0.131
 uvicorn
 alpaca-py
 python-dotenv
@@ -7,5 +7,9 @@ langchain
 langchain-groq
 tavily-python
 streamlit
-pydantic
+pydantic>=2.7
 mcp
+sqlalchemy>=2.0
+psycopg[binary]
+redis
+fakeredis

@@ -1,6 +1,7 @@
 # ReAct integration plan — TradeLix / Alpaca hardening backend
 
-**Status:** proposal for review. No code written yet. Companion to the research notes in
+**Status:** implemented on the proposal side (v1). Loop + `?deep=true` + per-agent Groq
+models + SSE `react` sub-events. Companion to
 [`../research/react-agentic-patterns.md`](../research/react-agentic-patterns.md).
 
 ## Goal
@@ -92,8 +93,11 @@ one place for retries/backoff, timeout, and telemetry (turns, tokens, latency). 
 ## Config (new flags, consistent with `services/config.py`)
 
 `RESEARCH_MAX_TURNS=3`, `DECISION_MAX_TURNS=3`, `REACT_TOOL_TIMEOUT_S=8`,
-`REACT_TOKEN_BUDGET=…`, `DEEP_RESEARCH_DEFAULT=false`. Requires `GROQ_API_KEY` (and `TAVILY_API_KEY`
-for real news) to do anything beyond the fail-closed NEUTRAL/HOLD path.
+`DEEP_RESEARCH_DEFAULT=false`, plus per-agent Groq IDs (`GROQ_MODEL_SENTIMENT`,
+`GROQ_MODEL_DECISION`, fallback `GROQ_MODEL`) constrained to the Free allowlist.
+Requires `GROQ_API_KEY` (and `TAVILY_API_KEY` for real news) to do anything beyond
+the fail-closed NEUTRAL/HOLD path. Dashboard: `GET /models` + query
+`sentiment_model` / `decision_model`.
 
 ## Phased implementation (follow-up pass, after this plan is approved)
 

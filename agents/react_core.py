@@ -7,13 +7,12 @@ nothing here can trade.
 
 import concurrent.futures
 import json
-import os
 import re
 
 from langchain_core.messages import HumanMessage
 from langchain_groq import ChatGroq
 
-_MODEL = os.getenv("GROQ_MODEL", "openai/gpt-oss-120b")
+from services import config, secrets
 
 
 class Reasoner:
@@ -21,10 +20,11 @@ class Reasoner:
     fail closed instead of crashing mid-loop."""
 
     def __init__(self, model=None):
-        api_key = os.getenv("GROQ_API_KEY")
+        api_key = secrets.groq_api_key()
         if not api_key:
             raise RuntimeError("Missing GROQ_API_KEY")
-        self._llm = ChatGroq(model=model or _MODEL, api_key=api_key)
+        self.model = model or config.GROQ_MODEL
+        self._llm = ChatGroq(model=self.model, api_key=api_key)
 
     def chat(self, messages):
         """`messages` is a list of langchain messages, or a plain prompt string.
