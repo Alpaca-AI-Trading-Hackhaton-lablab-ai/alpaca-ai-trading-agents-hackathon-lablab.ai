@@ -1,5 +1,9 @@
-"""Feature agent — same indicator engine as technical. No dummy SMAs."""
+"""Feature agent — same indicator engine as technical. No dummy SMAs.
 
+Domain logic above; Agent wrapper at the bottom.
+"""
+
+from agents.base import Agent
 from agents.indicator_engine import snapshot_only
 
 
@@ -19,3 +23,13 @@ def get_market_features(symbol="SPY", indicators=None):
         "atr": snap.get("atr"),
         "volume": snap.get("volume"),
     }
+
+
+class FeatureAgent(Agent):
+    node = "features"
+
+    def run(self, ctx):
+        return get_market_features(ctx["symbol"], ctx.get("indicators"))
+
+    def message(self, out):
+        return self._err(out) or f"{out.get('trend')} @ {out.get('price')}"

@@ -39,7 +39,9 @@ Proposed: a bounded loop that researches "what is driving {symbol} right now?"
 4. **Bounds**: `RESEARCH_MAX_TURNS` (default 3–4), per-tool timeout, observation truncation,
    no-progress exit. Any failure → **NEUTRAL** (fail-closed), never blocks the pipeline.
 
-Read-only tools available to this loop: `get_market_news` (Tavily). Output shape stays compatible
+Read-only tools available to this loop: `get_market_news` (Tavily) and
+`lookup_concept` (DuckDuckGo Instant Answer, for unknown terms — not news).
+Output shape stays compatible
 with the existing `sentiment` contract so `build_market_state` / `make_decision` don't change.
 
 ## Component 2 — Decision reasoning loop (upgrades `make_decision`)
@@ -65,6 +67,7 @@ A new `agents/research_tools.py` exposing a whitelist that wraps existing servic
 | Tool | Wraps | Read-only |
 |------|-------|-----------|
 | `get_market_news(symbol, query?)` | `services/news_service.py` | ✅ |
+| `lookup_concept(query)` | `services/concept_lookup.py` (DDG Instant Answer) | ✅ |
 | `get_market_features(symbol)` | `agents/feature_agent.py` | ✅ |
 | `technical_analysis(symbol)` | `agents/technical_agent.py` | ✅ |
 | `get_account_info()` | `services/alpaca_service.py` | ✅ |

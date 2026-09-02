@@ -5,16 +5,18 @@ import unittest
 from unittest.mock import patch
 
 from agents.base import ReactAgent
-from agents.nodes import DecisionReactAgent
+from agents.decision_agent import DecisionReactAgent
 from agents.react_core import parse_tool_call
 from services import config
 
 
 class ParseToolCallTest(unittest.TestCase):
-    def test_tool_json(self):
-        call = parse_tool_call('{"tool": "get_market_news", "params": {"symbol": "AAPL"}}')
-        self.assertEqual(call["tool"], "get_market_news")
-        self.assertEqual(call["params"]["symbol"], "AAPL")
+    def test_lookup_concept_tool_json(self):
+        call = parse_tool_call(
+            '{"tool": "lookup_concept", "params": {"query": "RSI"}}'
+        )
+        self.assertEqual(call["tool"], "lookup_concept")
+        self.assertEqual(call["params"]["query"], "RSI")
 
     def test_final_answer_is_none(self):
         self.assertIsNone(parse_tool_call('{"sentiment": "NEUTRAL", "confidence": 0}'))

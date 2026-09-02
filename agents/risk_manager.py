@@ -1,3 +1,11 @@
+"""Risk node — deterministic position sizing from confidence tiers. Never an LLM.
+
+Domain logic above; Agent wrapper at the bottom.
+"""
+
+from agents.base import Agent
+
+
 def calculate_risk(account_balance, confidence):
     account_balance = float(account_balance or 100000)
     confidence = float(confidence or 0)
@@ -39,3 +47,16 @@ def calculate_risk(account_balance, confidence):
         "max_loss": max_loss,
         "take_profit": take_profit
     }
+
+
+class RiskAgent(Agent):
+    node = "risk"
+
+    def run(self, ctx):
+        return calculate_risk(
+            ctx["account"].get("equity", 100000),
+            ctx["sentiment"].get("confidence", 0),
+        )
+
+    def message(self, out):
+        return self._err(out) or f"{out.get('risk_level')} · ${out.get('position_size')}"

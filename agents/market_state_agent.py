@@ -1,3 +1,11 @@
+"""Market-state node — merge sentiment, options, features, technical.
+
+Domain logic above; Agent wrapper at the bottom.
+"""
+
+from agents.base import Agent
+
+
 def build_market_state(
     sentiment,
     options,
@@ -30,3 +38,17 @@ def build_market_state(
         # Options Agent
         "option_strategy": options.get("strategy", "NO_TRADE"),
     }
+
+
+class MarketStateAgent(Agent):
+    node = "market_state"
+
+    def run(self, ctx):
+        return build_market_state(
+            ctx["sentiment"], ctx["options"], ctx["features"], ctx["technical"]
+        )
+
+    def message(self, out):
+        return self._err(out) or (
+            f"{out.get('sentiment')} · {out.get('technical_signal')} · {out.get('trend')}"
+        )

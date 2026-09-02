@@ -14,8 +14,10 @@ news → sentiment → options → features → technical → market_state
 ```
 
 - `services/news_service.py` — calls Tavily, returns normalized articles.
-- `agents/sentiment_agent.py` — consumes those articles and produces a
-  sentiment verdict via the Groq LLM.
+- `agents/news_agent.py` — `NewsAgent` pipeline wrapper (Tavily fetch; no LLM).
+- `agents/sentiment_agent.py` — `analyze_sentiment()` plus `SentimentAgent` /
+  `SentimentReactAgent` at the bottom of the file. Consumes articles and produces a
+  sentiment verdict via Groq.
 
 ```
 get_market_news(symbol)  ──▶  analyze_sentiment(news)  ──▶  { sentiment, confidence, trade_bias, ... }
@@ -67,6 +69,20 @@ market-moving headlines rather than static quote/overview landing pages.
 
 The function never raises: a Tavily outage or bad key falls back to demo news
 instead of breaking the pipeline.
+
+## Providers evaluated and rejected
+
+Tavily stays the only **news** source. These were checked and **not** wired as
+headline search:
+
+- **X (Twitter) API** — no free search for new developers (2026 pay-per-use;
+  search was never on the old free tier). Scraping x.com is not an option.
+- **DuckDuckGo HTML / `ddgs` scrapers** — violate DuckDuckGo's terms; they do
+  not syndicate full search results.
+
+DuckDuckGo's **official Instant Answer API** is used separately as
+`lookup_concept` for jargon and entities the ReAct loops do not know — not for
+news. See `docs/ddg-concept-lookup.md`.
 
 ## Output shape
 

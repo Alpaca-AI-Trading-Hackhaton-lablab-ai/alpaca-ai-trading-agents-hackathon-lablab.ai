@@ -33,6 +33,12 @@ class Agent:
     def message(self, out: Any) -> str:
         return ""
 
+    @staticmethod
+    def _err(out):
+        if isinstance(out, dict) and out.get("error"):
+            return str(out["error"])
+        return None
+
 
 class ReactAgent(Agent):
     """Bounded reason -> act -> observe loop on Groq. Subclasses override the

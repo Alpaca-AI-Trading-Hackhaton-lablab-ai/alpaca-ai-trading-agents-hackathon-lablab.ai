@@ -1,5 +1,12 @@
+"""Paper executor. Not in the SSE pipeline — POST /execute only.
+
+Domain logic above; Agent wrapper at the bottom. The gate must have already
+authorized the decision; this module never bypasses it.
+"""
+
 import time
 
+from agents.base import Agent
 from services.alpaca_service import get_order_status, submit_market_order
 
 # Estados terminales de una orden Alpaca.
@@ -70,3 +77,16 @@ def execute_trade(decision):
             "error": str(e),
             "decision": decision,
         }
+
+
+class ExecutionAgent(Agent):
+    """Broker submit + poll. Instantiated only by POST /execute, never by
+    build_pipeline()."""
+
+    node = "execution"
+
+    def run(self, ctx):
+        return execute_trade(ctx["decision"])
+
+    def message(self, out):
+        return self._err(out) or out.get("status") or "n/a"

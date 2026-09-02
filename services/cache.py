@@ -19,6 +19,7 @@ PREFIX = "alc:cache"
 TTL_NEWS = 600
 TTL_INDICATORS = 60
 TTL_ACCOUNT = 15
+TTL_CONCEPT = 3600
 
 _client = None
 

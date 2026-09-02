@@ -8,7 +8,8 @@ its `/api` proxy. Style modeled on the `ap-base-fastapi-uv-service` base, focuse
 ## Before changing code
 
 - Read `README.md`, this file, `CLAUDE.md`, and **the docs for the area you touch**:
-  `docs/tavily-news-integration.md`, `docs/research/react-agentic-patterns.md`,
+  `docs/tavily-news-integration.md`, `docs/ddg-concept-lookup.md`,
+  `docs/research/react-agentic-patterns.md`,
   `docs/plans/react-integration-plan.md`, and the parent-monorepo architecture notes
   (`../consideraciones-encontradas.md`, `../analisis-de-integrabilidad.md`).
 - If the change uses FastAPI, `alpaca-py`, `langchain-groq`, `tavily-python`, Pydantic or Uvicorn,
@@ -40,14 +41,16 @@ its `/api` proxy. Style modeled on the `ap-base-fastapi-uv-service` base, focuse
 ## Structure & design
 
 - Do not break the separation: `backend.py` (FastAPI app + `run_pipeline` + endpoints), `agents/`
-  (one function per pipeline node; `execution_agent` = pure executor, `execution_gate` = governor),
+  (domain logic then `Agent` subclass at the **end of each file**; `nodes.py` is the registry
+  (`PIPELINE_KEYS` + `build_pipeline`); `execution_agent` = pure executor, `execution_gate` = governor),
   `services/` (`alpaca_service`, `news_service`, `config`, `mcp_client`, `db`, `cache`, `secrets`,
   `persist`, `logs`), `docs/`.
 - Pipeline topological order:
   `news → sentiment → options; features; technical; account → market_state → risk → decision → gate`
   (execution runs only via `POST /execute`).
-- Each node is a function of the accumulated `ctx`; keep `_STEPS`, `_PIPELINE_KEYS`, and the `_msg()`
-  branch in sync when adding/renaming a node.
+- Each node is an `Agent` whose `run(ctx)` writes into the accumulated `ctx` under `agent.node`.
+  Keep `PIPELINE_KEYS` in `agents/nodes.py` in sync when adding/renaming a node. Do not put Agent
+  classes in `nodes.py` — they belong at the bottom of the domain module.
 - SSE (`/pipeline/stream`) uses a **synchronous** generator (threadpool). Events: `node`, `react` (ReAct thought/tool/observation), `done`. Do not make the pipeline
   `async` or block the event loop; do not re-split the Alpaca client/account (all reads and writes
   share one paper account — that bug is fixed, keep it fixed).

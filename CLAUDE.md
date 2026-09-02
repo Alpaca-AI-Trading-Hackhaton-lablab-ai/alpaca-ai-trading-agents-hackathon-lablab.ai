@@ -14,7 +14,8 @@ deterministic gate** and **paper-only**. The React dashboard `tradelix-poc-web` 
 ## Before touching code
 
 1. Read `README.md`, `AGENTS.md`, and the doc for the area you change:
-   `docs/tavily-news-integration.md` (news→sentiment), `docs/research/react-agentic-patterns.md`,
+   `docs/tavily-news-integration.md` (news→sentiment), `docs/ddg-concept-lookup.md`
+   (Instant Answer for unknown terms), `docs/research/react-agentic-patterns.md`,
    `docs/plans/react-integration-plan.md` (approved ReAct plan), and the parent-monorepo
    architecture notes.
 2. If you use FastAPI, `alpaca-py`, `langchain-groq`, `tavily-python`, Pydantic, or Uvicorn, check
@@ -25,12 +26,13 @@ deterministic gate** and **paper-only**. The React dashboard `tradelix-poc-web` 
 
 ```txt
 backend.py            FastAPI app: run_pipeline() (step runner), /pipeline(+/stream SSE),
-                      /execute, /control*, /audit, and the _STEPS / _PIPELINE_KEYS contract.
-agents/               One node per function: sentiment, options, feature, technical,
-                      market_state, risk, decision, execution (pure executor),
-                      execution_gate (the deterministic governor).
+                      /execute, /control*, /audit, and the PIPELINE_KEYS contract.
+agents/               Domain logic then Agent subclass at file end. nodes.py is the
+                      registry (PIPELINE_KEYS + build_pipeline). execution_agent is the
+                      pure executor; execution_gate is the deterministic governor.
 services/             alpaca_service (paper client, orders, positions, clock, open orders),
-                      news_service (Tavily), config (flags + runtime arm/kill state), mcp_client,
+                      news_service (Tavily), concept_lookup (DDG Instant Answer), config
+                      (flags + runtime arm/kill state), mcp_client,
                       db / cache / secrets / persist / logs (Postgres + Redis).
 docs/                 Living documentation (obey it; update it when behavior changes).
 .env / .env.example   Secrets (gitignored) / empty template.

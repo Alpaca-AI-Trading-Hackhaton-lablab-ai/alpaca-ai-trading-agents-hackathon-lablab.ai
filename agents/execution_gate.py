@@ -3,7 +3,7 @@
 The LLM proposes a decision; this pure-Python governor authorizes it. No model
 is in this loop. It runs as a read-only preview inside the pipeline stream and
 again authoritatively right before submit, so it must stay idempotent and free
-of side effects.
+of side effects. Domain logic above; Agent wrapper at the bottom.
 
 evaluate_gate(...) -> {
     "verdict": "ALLOW" | "BLOCK" | "NO_TRADE",
@@ -15,7 +15,9 @@ evaluate_gate(...) -> {
 
 import os
 
+from agents.base import Agent
 from services import config
+from services.alpaca_service import get_market_clock, get_open_orders, get_positions
 
 
 def _is_live_requested():
@@ -124,3 +126,25 @@ def evaluate_gate(decision, account, positions, open_orders, clock):
         "checks": checks,
         "reasons": reasons,
     }
+
+
+class GateAgent(Agent):
+    node = "gate"
+
+    def run(self, ctx):
+        return evaluate_gate(
+            ctx["decision"],
+            ctx["account"],
+            get_positions().get("positions", []),
+            get_open_orders(ctx["symbol"]),
+            get_market_clock(),
+        )
+
+    def message(self, out):
+        verdict = out.get("verdict")
+        if verdict == "BLOCK":
+            reasons = out.get("reasons") or []
+            return f"BLOCK — {reasons[0] if reasons else 'blocked'}"
+        if verdict == "NO_TRADE":
+            return "NO_TRADE"
+        return f"ALLOW · {len(out.get('checks') or [])} checks"

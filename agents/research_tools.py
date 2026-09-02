@@ -8,6 +8,7 @@ registered here — the loops can gather evidence, never trade.
 from agents.feature_agent import get_market_features
 from agents.technical_agent import technical_analysis
 from services.alpaca_service import get_account_info
+from services.concept_lookup import lookup_concept
 from services.logs import recent_for_agents
 from services.news_service import get_market_news
 
@@ -24,6 +25,7 @@ REGISTRY = {
     "technical_analysis": technical_analysis,
     "get_account_info": get_account_info,
     "recent_history": recent_history,
+    "lookup_concept": lookup_concept,
 }
 
 
