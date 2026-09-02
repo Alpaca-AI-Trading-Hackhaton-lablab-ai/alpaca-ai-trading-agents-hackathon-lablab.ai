@@ -1,0 +1,58 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: alpacore
+      POSTGRES_PASSWORD: alpacore
+      POSTGRES_DB: alpacore
+    ports:
+      - "5433:5432"
+    volumes:
+      - alpacore-pg:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U alpacore -d alpacore"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6380:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
+  tradelix-backend:
+    build:
+      context: .
+    container_name: tradelix-backend
+    ports:
+      - "8000:8000"
+    env_file:
+      - path: .env.example
+        required: true
+      - path: .env
+        required: false
+    environment:
+      ALPACA_PAPER_TRADE: "true"
+      DATABASE_URL: postgresql+psycopg://alpacore:alpacore@postgres:5432/alpacore
+      REDIS_URL: redis://redis:6379/0
+      CORS_ORIGINS: http://localhost:3200,http://127.0.0.1:3200
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - default
+      - tradelix
+
+networks:
+  tradelix:
+    name: tradelix
+
+volumes:
+  alpacore-pg:

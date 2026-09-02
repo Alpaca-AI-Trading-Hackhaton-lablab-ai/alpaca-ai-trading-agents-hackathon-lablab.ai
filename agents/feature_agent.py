@@ -1,25 +1,21 @@
-from services.alpaca_service import get_spy_price
+"""Feature agent — same indicator engine as technical. No dummy SMAs."""
+
+from agents.indicator_engine import snapshot_only
 
 
-def get_market_features(symbol="SPY"):
-
-    market = get_spy_price(symbol)
-
-    price = market.get("ask") or market.get("price") or 100.0
-
-    # Simple dummy indicators for now
-    sma20 = price * 0.99
-    sma50 = price * 0.97
-
-    if sma20 > sma50:
-        trend = "BULLISH"
-    else:
-        trend = "BEARISH"
-
+def get_market_features(symbol="SPY", indicators=None):
+    snap = snapshot_only(symbol, indicators)
+    if snap.get("error"):
+        return snap
     return {
-        "symbol": market.get("symbol", symbol),
-        "price": round(price, 2),
-        "sma20": round(sma20, 2),
-        "sma50": round(sma50, 2),
-        "trend": trend
+        "symbol": snap.get("symbol", symbol),
+        "price": snap.get("price"),
+        "sma20": snap.get("sma20"),
+        "sma50": snap.get("sma50"),
+        "ema20": snap.get("ema20"),
+        "trend": snap.get("trend", "NEUTRAL"),
+        "rsi": snap.get("rsi"),
+        "macd": snap.get("macd"),
+        "atr": snap.get("atr"),
+        "volume": snap.get("volume"),
     }
