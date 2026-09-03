@@ -4,6 +4,39 @@
 > Update it when APIs change or items are completed.
 > _Last research: 2026-09-03 via Alpaca docs + community._
 
+## Agent workflow (mandatory)
+
+1. **Research this file first** with a lighter / cheaper model + web search (Alpaca docs,
+   paper API, bracket/trailing/fills). Rewrite the P1 notes here if anything changed.
+2. **Then implement** with a capable model. Do not skip step 1.
+3. **Modify and push** the contract files below to **`main`** in both repos. A local-only
+   edit is not enough — deploy reads GitHub `main`.
+4. **Only after those pushes**, deploy **backend + frontend on one EC2 `t3.medium`**
+   (single box; both Docker Compose stacks; shared `tradelix` network). Not two
+   instances, not Fargate/ECS for this PoC.
+
+### Files that must be edited and pushed
+
+| Repo | Path | Why |
+|------|------|-----|
+| backend | `pendiente-alpacorp.md` | This backlog + deploy target. Update status after each cut. |
+| backend | `AGENTS.md` | Deploy/push rules for agents. |
+| backend | `CLAUDE.md` | Same rules (takes precedence over AGENTS). |
+| backend | `README.md` | One-box `t3.medium` pointer. |
+| frontend | `AGENTS.md` | Points here; same single-EC2 + push rule. |
+| frontend | `README.md` | Same one-box pointer. |
+
+Backend remote: `Alpaca-AI-Trading-Hackhaton-lablab-ai/alpaca-ai-trading-agents-hackathon-lablab.ai`  
+Frontend remote: `Alpaca-AI-Trading-Hackhaton-lablab-ai/alpacore-tradelix-web`
+
+### Single EC2 `t3.medium` (paper PoC)
+
+- One instance, both repos cloned (or pulled) from `main`.
+- Start backend compose first (`postgres` + `redis` + `tradelix-backend:8000`, network `tradelix`).
+- Then frontend compose (`tradelix-poc-web:3200` → nginx `/api` → `tradelix-backend:8000`).
+- Paper only. Secrets live in the backend `.env` on the box, never in git.
+- `t3.medium` is unlimited-credit by default — watch surplus CPU on a 24h hackathon box.
+
 ---
 
 ## P1 — Tick propone bracket (TP/SL), no market notional desnudo

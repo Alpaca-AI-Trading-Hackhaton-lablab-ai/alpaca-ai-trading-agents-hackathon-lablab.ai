@@ -37,6 +37,13 @@ The API container **overrides** `DATABASE_URL` / `REDIS_URL` to `postgres:5432` 
 
 Keys saved later in the UI (`PUT /settings`) override `.env`. `GET /settings` never returns secret values — only `db` / `env` / `missing`.
 
+## Deploy (single EC2)
+
+Hackathon target is **one** `t3.medium`: clone/pull **`main`** for this repo and
+`alpacore-tradelix-web`, then `docker compose up` here first and the web repo second.
+See [`pendiente-alpacorp.md`](pendiente-alpacorp.md) (files that must be edited and
+pushed before a deploy).
+
 ## Run with Docker (recommended)
 
 Do **not** also run host uvicorn on port 8000.

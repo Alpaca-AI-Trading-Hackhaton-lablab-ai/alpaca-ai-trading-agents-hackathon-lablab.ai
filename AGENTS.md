@@ -8,7 +8,13 @@ its `/api` proxy. Style modeled on the `ap-base-fastapi-uv-service` base, focuse
 ## Before deploying or making breaking changes
 
 - Read **[`pendiente-alpacorp.md`](pendiente-alpacorp.md)** — open P1 items (tick brackets,
-  position-aware risk, fill lifecycle). Update it if the API surface or status changes.
+  position-aware risk, fill lifecycle). Research it with a lighter model + web search,
+  then implement with a capable model. **Edit and `git push` to `main`** these files when
+  the backlog or deploy contract changes: `pendiente-alpacorp.md`, this file, `CLAUDE.md`,
+  and `../tradelix-poc-web/AGENTS.md`. Local-only edits do not count.
+- **Deploy target:** one Amazon EC2 **`t3.medium`** running **both** the backend Compose
+  stack and the frontend Compose stack (shared `tradelix` network). Do not split them
+  across two instances. Push both `main` branches before pulling on that box.
 
 ## Before changing code
 
