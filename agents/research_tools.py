@@ -15,9 +15,9 @@ from services.logs import recent_for_agents
 from services.news_service import get_market_news
 
 
-def recent_history(symbol="SPY", limit=10):
+def recent_history(symbol="SPY", limit=10, agent_id=None):
     """Read-only compact invocation history for this symbol. No secrets, no OHLCV."""
-    return recent_for_agents(symbol, limit=limit)
+    return recent_for_agents(symbol, limit=limit, agent_id=agent_id)
 
 
 # name -> read-only callable

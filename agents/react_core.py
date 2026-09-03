@@ -8,11 +8,12 @@ nothing here can trade.
 import concurrent.futures
 import json
 import re
+import time
 
 from langchain_core.messages import HumanMessage
 from langchain_groq import ChatGroq
 
-from services import config, secrets
+from services import config, secrets, usage_meter
 
 
 class Reasoner:
@@ -24,14 +25,29 @@ class Reasoner:
         if not api_key:
             raise RuntimeError("Missing GROQ_API_KEY")
         self.model = model or config.GROQ_MODEL
-        self._llm = ChatGroq(model=self.model, api_key=api_key)
+        cheap = usage_meter.cheap_model_id()
+        if cheap:
+            self.model = cheap
+        self._llm = ChatGroq(model=self.model, api_key=api_key, max_retries=2)
 
     def chat(self, messages):
         """`messages` is a list of langchain messages, or a plain prompt string.
         Returns {"response": str}."""
+        if messages is None:
+            messages = []
         if isinstance(messages, str):
             messages = [HumanMessage(messages)]
-        result = self._llm.invoke(messages)
+        try:
+            result = self._llm.invoke(messages)
+        except Exception as exc:
+            text = str(exc).lower()
+            if "429" in text or "rate" in text:
+                retry_after = 1.0
+                time.sleep(retry_after)
+                result = self._llm.invoke(messages)
+            else:
+                raise
+        usage_meter.capture_groq(result, model=self.model)
         return {"response": getattr(result, "content", "") or ""}
 
 

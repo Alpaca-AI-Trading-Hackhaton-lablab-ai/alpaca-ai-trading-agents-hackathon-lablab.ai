@@ -5,6 +5,11 @@ hackathon PoC). A linear multi-agent pipeline that turns market data into a **ga
 trade proposal. The React dashboard ([`tradelix-poc-web`](../tradelix-poc-web)) consumes it through
 its `/api` proxy. Style modeled on the `ap-base-fastapi-uv-service` base, focused on this repo.
 
+## Before deploying or making breaking changes
+
+- Read **[`pendiente-alpacorp.md`](pendiente-alpacorp.md)** — open P1 items (tick brackets,
+  position-aware risk, fill lifecycle). Update it if the API surface or status changes.
+
 ## Before changing code
 
 - Read `README.md`, this file, `CLAUDE.md`, and **the docs for the area you touch**:
@@ -24,8 +29,10 @@ its `/api` proxy. Style modeled on the `ap-base-fastapi-uv-service` base, focuse
    must keep guarding client creation. Never remove, weaken, or bypass it.
 2. **Probabilistic intelligence above, deterministic authority below.** Agents/LLMs only **propose**;
    `agents/execution_gate.py:evaluate_gate()` authorizes. No agent, tool, or LLM loop may submit an
-   order or bypass the gate. `POST /execute` is the **only** path that reaches the broker, and it
-   always runs through the gate first.
+   order or bypass the gate. Nothing reaches the broker except via
+   `agents/execution_agent.py:dispatch()` after `evaluate_gate()`. Surfaces: `POST /execute`,
+   armed scheduler tick, `POST /bracket/execute`, and conditionals (via `execute_plan` → `dispatch`).
+   The graph SSE (`/pipeline`) is preview only and does not dispatch.
 3. **One working order per symbol — no pile-on.** The gate hard-blocks a symbol that already has a
    resting order. Keep that check.
 4. **Arm-to-execute.** `EXECUTE_ENABLED=false` by default → an ALLOW returns `DRY_RUN` (nothing
@@ -48,7 +55,7 @@ its `/api` proxy. Style modeled on the `ap-base-fastapi-uv-service` base, focuse
   `persist`, `logs`), `docs/`.
 - Pipeline topological order:
   `news → sentiment → options; features; technical; orderblock; institutional; account → market_state → risk → decision → gate`
-  (execution runs only via `POST /execute`).
+  (execution is not a pipeline node; broker submit is only via `dispatch()`).
 - Each node is an `Agent` whose `run(ctx)` writes into the accumulated `ctx` under `agent.node`.
   Keep `PIPELINE_KEYS` in `agents/nodes.py` in sync when adding/renaming a node. Do not put Agent
   classes in `nodes.py` — they belong at the bottom of the domain module.

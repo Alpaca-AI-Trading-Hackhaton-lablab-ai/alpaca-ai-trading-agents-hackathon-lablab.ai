@@ -1,3 +1,4 @@
+import asyncio
 import os
 import time
 import traceback
@@ -11,13 +12,13 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 
 from agents.base import ReactAgent
-from agents.execution_agent import execute_trade
-from agents.execution_gate import evaluate_gate
+from agents.decision_agent import oms_snapshot
+from agents.execution_agent import dispatch
 from agents.feature_agent import get_market_features
 from agents.indicator_engine import compute_pack, parse_indicators
 from agents.nodes import PIPELINE_KEYS, build_pipeline
 from agents.technical_agent import technical_analysis
-from services import bracket, cache, conditional, config, db, logs, persist
+from services import bracket, cache, conditional, config, db, logs, persist, scheduler, usage_meter
 from services.schemas import (
     AccountOut,
     AuditOut,
@@ -54,7 +55,13 @@ async def lifespan(_app):
     load_dotenv()
     db.connect()
     cache.connect()
+    task = asyncio.create_task(scheduler.loop())
     yield
+    task.cancel()
+    try:
+        await task
+    except asyncio.CancelledError:
+        pass
     cache.close()
     db.close()
 
@@ -171,7 +178,13 @@ def run_pipeline(
         "indicators": indicators,
         "decision_indicators": decision_indicators,
         "run_id": str(uuid.uuid4()),
+        "max_credit": scheduler.max_credit(),
+        "open_orders": get_open_orders(),
+        "positions": get_positions().get("positions", []),
     }
+    oms = oms_snapshot(ctx["open_orders"], ctx["positions"])
+    ctx["working_book"] = oms["working_book"]
+    ctx["positions"] = oms["positions"]
     for agent in build_pipeline(deep, deep_sentiment, deep_decision):
         name = agent.node
         yield {
@@ -527,65 +540,27 @@ def execute(
         merged["deep_decision"],
     )
     decision = analysis["decision"]
-    gate = evaluate_gate(
-        decision,
-        analysis["account"],
-        get_positions().get("positions", []),
-        get_open_orders(_symbol(symbol)),
-        get_market_clock(),
+    result = dispatch(
+        decision=decision,
+        account=analysis["account"],
+        positions=get_positions().get("positions", []),
+        open_orders=get_open_orders(),
+        clock=get_market_clock(),
+        max_credit=scheduler.max_credit(),
     )
+    gate = result.get("gate") or {}
 
-    def _record(status, extra=None):
-        _audit(
-            {
-                "symbol": _symbol(symbol),
-                "action": (decision or {}).get("action"),
-                "verdict": gate["verdict"],
-                "status": status,
-                "notional": gate.get("notional"),
-                "order_id": (extra or {}).get("order_id"),
-                "reasons": gate.get("reasons"),
-            }
-        )
-
-    if gate["verdict"] == "NO_TRADE":
-        _record("NO_TRADE")
-        return {
-            "status": "NO_TRADE",
-            "reason": (gate["reasons"] or ["HOLD"])[0],
-            "gate": gate,
-            "decision": decision,
+    _audit(
+        {
+            "symbol": _symbol(symbol),
+            "action": (decision or {}).get("action"),
+            "verdict": gate.get("verdict"),
+            "status": result.get("status"),
+            "notional": gate.get("notional"),
+            "order_id": result.get("order_id"),
+            "reasons": gate.get("reasons"),
         }
-
-    if gate["verdict"] == "BLOCK":
-        _record("BLOCKED")
-        return {
-            "status": "BLOCKED",
-            "reason": (gate["reasons"] or ["blocked"])[0],
-            "gate": gate,
-            "decision": decision,
-        }
-
-    # verdict == ALLOW
-    if not config.is_armed():
-        _record("DRY_RUN")
-        side = "sell" if decision["action"] == "SELL" else "buy"
-        return {
-            "status": "DRY_RUN",
-            "reason": "System not armed (EXECUTE_ENABLED=false)",
-            "would_call": {
-                "tool": "place_stock_order",
-                "symbol": decision["symbol"],
-                "side": side,
-                "notional_position_size": decision["position_size"],
-            },
-            "gate": gate,
-            "decision": decision,
-        }
-
-    result = execute_trade(decision)
-    result["gate"] = gate
-    _record(result.get("status"), result)
+    )
     return result
 
 
@@ -731,6 +706,75 @@ def conditional_orders_delete(oid: str):
 @app.post("/webhook/{token}")
 def webhook_fire(token: str):
     return conditional.fire_webhook(token)
+
+
+@app.get("/schedule")
+def schedule_get():
+    return scheduler.get_public()
+
+
+@app.put("/schedule")
+def schedule_put(body: dict = Body(...)):
+    try:
+        return scheduler.save(body)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except RuntimeError as e:
+        raise HTTPException(status_code=503, detail=str(e)) from e
+
+
+@app.post("/schedule/start")
+def schedule_start(body: dict | None = Body(default=None)):
+    try:
+        if body:
+            patch = {
+                k: body[k]
+                for k in (
+                    "interval_seconds",
+                    "max_credit",
+                    "universe",
+                    "window_start",
+                    "window_end",
+                    "end_action",
+                )
+                if k in body
+            }
+            if patch:
+                scheduler.save(patch)
+            if body.get("focus"):
+                scheduler.set_focus(body["focus"])
+        return scheduler.start()
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except RuntimeError as e:
+        raise HTTPException(status_code=503, detail=str(e)) from e
+
+
+@app.post("/schedule/stop")
+def schedule_stop():
+    try:
+        return scheduler.stop()
+    except RuntimeError as e:
+        raise HTTPException(status_code=503, detail=str(e)) from e
+
+
+@app.get("/usage")
+def usage_get():
+    return {"entries": usage_meter.snapshot()}
+
+
+@app.get("/usage/budgets")
+def usage_budgets_get():
+    return {"budgets": usage_meter.load_budgets()}
+
+
+@app.put("/usage/budgets")
+def usage_budgets_put(body: dict | list = Body(...)):
+    items = body if isinstance(body, list) else body.get("budgets") or body.get("items") or []
+    try:
+        return {"budgets": usage_meter.save_budgets(items)}
+    except RuntimeError as e:
+        raise HTTPException(status_code=503, detail=str(e)) from e
 
 
 @app.get("/buy")

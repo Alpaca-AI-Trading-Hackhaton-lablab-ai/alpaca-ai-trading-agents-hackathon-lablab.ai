@@ -2,8 +2,9 @@
 
 Each Agent class lives at the bottom of its domain module. This file only
 assembles them. `deep` swaps ReAct variants for sentiment and decision; the
-gate stays a deterministic Agent. Execution is not in this list — POST /execute
-only.
+gate stays a deterministic Agent. Execution is not in this list — nothing
+reaches the broker except via `dispatch()` after `evaluate_gate()`. The SSE
+graph is preview only.
 """
 
 from agents.account_agent import AccountAgent

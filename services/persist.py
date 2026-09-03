@@ -109,6 +109,15 @@ def merge_pipeline_opts(
         deep_sentiment = True if deep else bool(stored["sentiment"].get("deep"))
     if deep_decision is None:
         deep_decision = True if deep else bool(stored["decision"].get("deep"))
+    from services import usage_meter
+
+    if usage_meter.deep_forced_off():
+        deep_sentiment = False
+        deep_decision = False
+    cheap = usage_meter.cheap_model_id()
+    if cheap:
+        sent = cheap
+        dec = cheap
     return {
         "sentiment_model": sent,
         "decision_model": dec,

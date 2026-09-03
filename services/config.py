@@ -35,6 +35,12 @@ EXECUTE_ENABLED_DEFAULT = _flag("EXECUTE_ENABLED", False)
 KILL_SWITCH_DEFAULT = _flag("KILL_SWITCH", False)
 MAX_SYMBOL_EXPOSURE_PCT = _pct("MAX_SYMBOL_EXPOSURE_PCT", 0.10)
 MAX_TOTAL_EXPOSURE_PCT = _pct("MAX_TOTAL_EXPOSURE_PCT", 0.30)
+MAX_WORKING_ORDERS = _int("MAX_WORKING_ORDERS", 3)
+DEFAULT_MAX_CREDIT = _pct("DEFAULT_MAX_CREDIT", 500)
+MIN_INTERVAL_S = _int("MIN_INTERVAL_S", 30)
+DEFAULT_INTERVAL_S = _int("DEFAULT_INTERVAL_S", 1800)
+HISTORY_FULL_RUNS = _int("HISTORY_FULL_RUNS", 2)
+DEFAULT_UNIVERSE = ("SPY", "QQQ", "AAPL", "MSFT", "NVDA", "TSLA")
 
 # ReAct (deep research / decision reasoning) — proposal side only, opt-in.
 DEEP_RESEARCH_DEFAULT = _flag("DEEP_RESEARCH_DEFAULT", False)
@@ -46,7 +52,7 @@ REACT_TOOL_TIMEOUT_S = _int("REACT_TOOL_TIMEOUT_S", 8)
 # Limits are per model (~200K TPD); splitting roles across IDs stretches the budget.
 GROQ_DEFAULT = "openai/gpt-oss-120b"
 GROQ_DEFAULT_SENTIMENT = "openai/gpt-oss-20b"
-GROQ_DEFAULT_DECISION = "openai/gpt-oss-120b"
+GROQ_DEFAULT_DECISION = "qwen/qwen3.8-27b"
 
 GROQ_ALLOWLIST = (
     {
@@ -71,6 +77,15 @@ GROQ_ALLOWLIST = (
     },
 )
 GROQ_ALLOWLIST_IDS = {item["id"] for item in GROQ_ALLOWLIST}
+
+# USD per 1M tokens. Free-tier keys still get a local estimate of 0.
+GROQ_PRICE_PER_1M = {
+    "openai/gpt-oss-120b": {"prompt": 0.0, "completion": 0.0},
+    "openai/gpt-oss-20b": {"prompt": 0.0, "completion": 0.0},
+    "qwen/qwen3.6-27b": {"prompt": 0.0, "completion": 0.0},
+    "qwen/qwen3.8-27b": {"prompt": 0.0, "completion": 0.0},
+}
+GROQ_CHEAP_MODEL = "openai/gpt-oss-20b"
 
 GROQ_MODEL = os.getenv("GROQ_MODEL", GROQ_DEFAULT).strip() or GROQ_DEFAULT
 GROQ_MODEL_SENTIMENT = (
@@ -141,6 +156,13 @@ def set_armed(value):
 def is_kill():
     """True when the kill switch is engaged (the gate blocks everything)."""
     return bool(_state["kill"])
+
+
+def is_within_window(now=None):
+    """True when no UTC window is configured, or now is inside it."""
+    from services import scheduler
+
+    return scheduler.is_within_window(now)
 
 
 def set_kill(value):

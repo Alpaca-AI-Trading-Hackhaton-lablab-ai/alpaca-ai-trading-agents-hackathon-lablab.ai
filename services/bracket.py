@@ -1,9 +1,7 @@
-"""Bracket preview + paper execute. Gate first; extras parked by the caller."""
+"""Bracket preview + paper execute. Submit goes through execution_agent.dispatch."""
 
 from __future__ import annotations
 
-from agents.execution_gate import evaluate_gate
-from services import config
 from services.alpaca_service import (
     submit_bracket_order,
     submit_market_order,
@@ -141,6 +139,26 @@ def _submit_native(plan):
     )
 
 
+def submit_armed(plan, park_emulated=True):
+    """Broker submit for an already-gated, armed plan. No gate, no arm check."""
+    emulated = (plan or {}).get("_emulated")
+    if emulated == "be":
+        return {"status": "be_moved", "reason": "stop moved to break-even"}
+    if emulated == "tp":
+        result = submit_market_order(
+            plan.get("symbol"),
+            "sell" if plan.get("side") == "buy" else "buy",
+            ((plan.get("size") or {}).get("notional") or 0)
+            * (((plan.get("tps") or [{}])[0] or {}).get("size_pct") or 100)
+            / 100,
+        )
+        return _normalize_submit(result)
+    result = _submit_native(plan)
+    out = _normalize_submit(result)
+    out["emulated"] = emulated_rows(plan) if park_emulated else []
+    return out
+
+
 def execute_plan(
     plan,
     account,
@@ -150,54 +168,18 @@ def execute_plan(
     decision=None,
     park_emulated=True,
 ):
-    """Gate + Armed then paper submit. Does not change POST /execute."""
-    decision = decision_from_plan(plan, decision)
-    gate = evaluate_gate(decision, account, positions, open_orders, clock, plan=plan)
+    """Gate + armed paper submit. Delegates to execution_agent.dispatch."""
+    from agents.execution_agent import dispatch
 
-    built = would_call(plan)
-    out = {
-        "gate": gate,
-        "decision": decision,
-        "would_call": built["would_call"],
-        "risk": built["risk"],
-        "emulated": [],
-    }
-
-    if gate["verdict"] == "NO_TRADE":
-        out.update({"status": "NO_TRADE", "reason": (gate["reasons"] or ["HOLD"])[0]})
-        return out
-    if gate["verdict"] == "BLOCK":
-        out.update({"status": "BLOCKED", "reason": (gate["reasons"] or ["blocked"])[0]})
-        return out
-    if not config.is_armed():
-        out.update(
-            {
-                "status": "DRY_RUN",
-                "reason": "System not armed (EXECUTE_ENABLED=false)",
-            }
-        )
-        return out
-
-    emulated = plan.get("_emulated")
-    if emulated == "be":
-        out.update({"status": "be_moved", "reason": "stop moved to break-even"})
-        return out
-    if emulated == "tp":
-        result = submit_market_order(
-            plan.get("symbol"),
-            "sell" if plan.get("side") == "buy" else "buy",
-            ((plan.get("size") or {}).get("notional") or 0)
-            * (((plan.get("tps") or [{}])[0] or {}).get("size_pct") or 100)
-            / 100,
-        )
-        out.update(_normalize_submit(result))
-        return out
-
-    result = _submit_native(plan)
-    out.update(_normalize_submit(result))
-    if park_emulated:
-        out["emulated"] = emulated_rows(plan)
-    return out
+    return dispatch(
+        decision=decision,
+        account=account,
+        positions=positions,
+        open_orders=open_orders,
+        clock=clock,
+        plan=plan,
+        park_emulated=park_emulated,
+    )
 
 
 def _normalize_submit(result):

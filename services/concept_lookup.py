@@ -97,6 +97,9 @@ def _fetch(query):
     try:
         with urllib.request.urlopen(req, timeout=_TIMEOUT_S) as resp:
             raw = resp.read().decode("utf-8")
+        from services import usage_meter
+
+        usage_meter.record("ddg", requests=1)
         payload = json.loads(raw)
     except (urllib.error.URLError, TimeoutError, json.JSONDecodeError, OSError):
         return _empty(query, "lookup unavailable")

@@ -4,7 +4,7 @@ import os
 from dotenv import load_dotenv
 from tavily import TavilyClient
 
-from services import cache, secrets
+from services import cache, secrets, usage_meter
 
 # Load .env when this module is used standalone (e.g. imported before
 # alpaca_service). Harmless if already loaded by another module.
@@ -66,6 +66,7 @@ def _fetch_market_news(symbol, query):
             search_depth="advanced",
             max_results=_MAX_RESULTS,
         )
+        usage_meter.record("tavily", requests=1, credits=2)
         results = _clean(response.get("results"))
 
         # Thin news window (e.g. weekend/holiday): fall back to a general search
@@ -77,6 +78,7 @@ def _fetch_market_news(symbol, query):
                 max_results=_MAX_RESULTS,
             )
             results = _clean(response.get("results"))
+            usage_meter.record("tavily", requests=1, credits=2)
 
         return results or _demo_news(symbol)
 

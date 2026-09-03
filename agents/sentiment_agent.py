@@ -11,7 +11,7 @@ from langchain_groq import ChatGroq
 from agents.base import Agent, ReactAgent
 from agents.react_core import extract_json
 from agents import research_tools
-from services import config, logs, secrets
+from services import config, logs, secrets, usage_meter
 
 
 def _neutral(reason="Sentiment unavailable", model=None):
@@ -55,6 +55,9 @@ def _strip_json_fence(content):
 
 def analyze_sentiment(news, model=None, history=None):
     model_id = model or config.resolve_models()["sentiment"]
+    cheap = usage_meter.cheap_model_id()
+    if cheap:
+        model_id = cheap
     items = _normalize_news(news)
     if not items:
         return _neutral("No news available", model=model_id)
@@ -81,6 +84,7 @@ Summary: {item['content']}
         llm = ChatGroq(
             model=model_id,
             api_key=api_key,
+            max_retries=2,
         )
 
         result = llm.invoke(
@@ -114,6 +118,7 @@ News:
             ]
         )
 
+        usage_meter.capture_groq(result, model=model_id)
         parsed = json.loads(_strip_json_fence(result.content))
         return {
             "sentiment": parsed.get("sentiment", "NEUTRAL"),
@@ -133,7 +138,7 @@ class SentimentAgent(Agent):
 
     def run(self, ctx):
         model = (ctx.get("models") or {}).get("sentiment")
-        history = logs.history_text(ctx.get("symbol"))
+        history = logs.history_text(ctx.get("symbol"), agent_id="sentiment")
         return analyze_sentiment(ctx.get("news"), model=model, history=history)
 
     def message(self, out):
@@ -174,9 +179,13 @@ class SentimentReactAgent(ReactAgent, SentimentAgent):
         return f"What is driving {ctx['symbol']} right now? Assess market sentiment."
 
     def tools(self, ctx=None):
-        return research_tools.subset(
+        tools = research_tools.subset(
             "get_market_news", "recent_history", "lookup_concept"
         )
+        tools["recent_history"] = lambda symbol="SPY", limit=10, **_k: (
+            research_tools.recent_history(symbol, limit=limit, agent_id="sentiment")
+        )
+        return tools
 
     def seed(self, ctx, _reasoner):
         # Reuse NewsAgent output so deep mode does not fan-out Tavily twice.
@@ -188,7 +197,7 @@ class SentimentReactAgent(ReactAgent, SentimentAgent):
                 date = art.get("published_date") or "?"
                 lines.append(f"- ({date}) {art.get('title', '')}")
         seed = "Initial evidence:\n" + "\n".join(lines) if lines else ""
-        history = logs.history_text(ctx.get("symbol"))
+        history = logs.history_text(ctx.get("symbol"), agent_id="sentiment")
         if history:
             seed = f"{seed}\n\n{history}" if seed else history
         return seed

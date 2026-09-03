@@ -62,6 +62,9 @@ def _assert_paper():
 
 
 def _get_trading_client():
+    from services import usage_meter
+
+    usage_meter.record("alpaca", requests=1)
     global _trading_client
     if _trading_client is None:
         _assert_paper()
@@ -74,6 +77,9 @@ def _get_trading_client():
 
 
 def _get_data_client():
+    from services import usage_meter
+
+    usage_meter.record("alpaca", requests=1)
     global _data_client
     if _data_client is None:
         _data_client = StockHistoricalDataClient(
@@ -400,6 +406,28 @@ def get_order_status(order_id):
         return {"order_id": str(order_id), "status": "unknown", "warning": str(e)}
 
 
+def cancel_order(order_id):
+    """Cancel a paper working order. _assert_paper intact."""
+    _assert_paper()
+    if not _has_alpaca_credentials():
+        return {
+            "status": "demo",
+            "mode": "demo",
+            "order_id": str(order_id),
+            "warning": "Missing Alpaca paper credentials",
+        }
+    try:
+        _get_trading_client().cancel_order_by_id(str(order_id))
+        return {"status": "CANCELED", "mode": "paper", "order_id": str(order_id)}
+    except Exception as e:
+        return {
+            "status": "FAILED",
+            "mode": "paper",
+            "order_id": str(order_id),
+            "reason": str(e),
+        }
+
+
 def get_open_orders(symbol=None):
     """Open (working) orders resting at the paper broker, normalized to dicts.
     Optionally filtered by symbol. Demo mode has no broker -> empty list.
@@ -465,3 +493,15 @@ def get_positions():
 
     except Exception as e:
         return {"mode": "demo", "positions": [], "warning": str(e)}
+
+
+def flatten_positions():
+    """Market-close every paper position. Reduce-only wind-down. _assert_paper intact."""
+    _assert_paper()
+    if not _has_alpaca_credentials():
+        return {"status": "demo", "mode": "demo", "closed": []}
+    try:
+        _get_trading_client().close_all_positions(cancel_orders=True)
+        return {"status": "flattened", "mode": "paper"}
+    except Exception as e:
+        return {"status": "FAILED", "mode": "paper", "reason": str(e)}

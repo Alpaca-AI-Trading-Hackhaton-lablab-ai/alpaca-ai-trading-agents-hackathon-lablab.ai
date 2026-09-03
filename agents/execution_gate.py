@@ -32,11 +32,21 @@ def _num(value, default=0.0):
         return float(default)
 
 
-def evaluate_gate(decision, account, positions, open_orders, clock, plan=None):
+def evaluate_gate(
+    decision,
+    account,
+    positions,
+    open_orders,
+    clock,
+    plan=None,
+    max_credit=None,
+):
     account = account or {}
     positions = positions or []
     open_orders = open_orders or []
     clock = clock or {}
+    if max_credit is None:
+        max_credit = config.DEFAULT_MAX_CREDIT
 
     if plan:
         side = str((plan or {}).get("side") or "").lower()
@@ -76,6 +86,48 @@ def evaluate_gate(decision, account, positions, open_orders, clock, plan=None):
             "reasons": ["decision is HOLD"],
         }
 
+    checks = []
+
+    def add(name, ok, detail, hard=True):
+        checks.append({"name": name, "ok": bool(ok), "detail": detail, "hard": hard})
+
+    add("paper", not _is_live_requested(),
+        "paper-only" if not _is_live_requested() else "LIVE requested")
+    add("kill_switch", not config.is_kill(),
+        "engaged" if config.is_kill() else "off")
+    add("window", config.is_within_window(),
+        "in window" if config.is_within_window() else "outside UTC window")
+    from services import usage_meter
+
+    ok_budget, over_provider = usage_meter.budget_ok()
+    add(
+        "budget_ok",
+        ok_budget,
+        "ok" if ok_budget else f"{over_provider} OVER",
+    )
+
+    if action == "CANCEL":
+        order_id = str((decision or {}).get("order_id") or "")
+        ours = any(
+            str(o.get("order_id") or o.get("id") or "") == order_id
+            for o in open_orders
+        )
+        add("cancel_own", bool(order_id) and ours,
+            "own working order" if ours else "unknown order_id")
+        add("session", bool(clock.get("is_open")),
+            "open" if clock.get("is_open") else "closed (order queued)", hard=False)
+        add("armed", config.is_armed(),
+            "armed" if config.is_armed() else "safe (dry-run)", hard=False)
+        reasons = [f"{c['name']}: {c['detail']}" for c in checks if c["hard"] and not c["ok"]]
+        return {
+            "verdict": "BLOCK" if reasons else "ALLOW",
+            "action": "CANCEL",
+            "symbol": symbol,
+            "notional": 0.0,
+            "checks": checks,
+            "reasons": reasons,
+        }
+
     equity = _num(account.get("equity"), 0.0)
     buying_power = _num(account.get("buying_power"), 0.0)
 
@@ -95,21 +147,16 @@ def evaluate_gate(decision, account, positions, open_orders, clock, plan=None):
     projected_symbol = pos_value + notional if increasing else pos_value
     projected_total = total_exposure + notional if increasing else total_exposure
 
-    working = [o for o in open_orders if o.get("symbol") == symbol]
+    working_symbol = [o for o in open_orders if o.get("symbol") == symbol]
     mode = account.get("mode")
+    cap = _num(max_credit, config.DEFAULT_MAX_CREDIT)
 
-    checks = []
-
-    def add(name, ok, detail, hard=True):
-        checks.append({"name": name, "ok": bool(ok), "detail": detail, "hard": hard})
-
-    add("paper", not _is_live_requested(),
-        "paper-only" if not _is_live_requested() else "LIVE requested")
-    add("kill_switch", not config.is_kill(),
-        "engaged" if config.is_kill() else "off")
     add("buying_power",
         (notional <= buying_power) if increasing else True,
         f"${notional:,.0f} / ${buying_power:,.0f}")
+    add("max_credit",
+        notional <= cap,
+        f"${notional:,.0f} / ${cap:,.0f}")
     add("symbol_exposure",
         (projected_symbol <= symbol_cap) if increasing else True,
         f"${projected_symbol:,.0f} / ${symbol_cap:,.0f} "
@@ -118,8 +165,10 @@ def evaluate_gate(decision, account, positions, open_orders, clock, plan=None):
         (projected_total <= total_cap) if increasing else True,
         f"${projected_total:,.0f} / ${total_cap:,.0f} "
         f"({config.MAX_TOTAL_EXPOSURE_PCT:.0%})")
-    add("one_working_order", len(working) == 0,
-        "none resting" if not working else f"{len(working)} working — no pile-on")
+    add("one_per_symbol", len(working_symbol) == 0,
+        "none resting" if not working_symbol else f"{len(working_symbol)} working — no pile-on")
+    add("active_orders", len(open_orders) < config.MAX_WORKING_ORDERS,
+        f"{len(open_orders)} / {config.MAX_WORKING_ORDERS} working")
     add("session", bool(clock.get("is_open")),
         "open" if clock.get("is_open") else "closed (order queued)", hard=False)
     add("armed", config.is_armed(),
@@ -177,8 +226,9 @@ class GateAgent(Agent):
             ctx["decision"],
             ctx["account"],
             get_positions().get("positions", []),
-            get_open_orders(ctx["symbol"]),
+            get_open_orders(),
             get_market_clock(),
+            max_credit=ctx.get("max_credit"),
         )
 
     def message(self, out):

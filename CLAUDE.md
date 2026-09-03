@@ -11,6 +11,12 @@ deterministic gate** and **paper-only**. The React dashboard `tradelix-poc-web` 
 `/api`. Stack: FastAPI + Uvicorn, `alpaca-py` (paper), `langchain-groq` (sentiment),
 `tavily-python` (news). Dependencies in `requirements.txt` (`pip`, not `uv`).
 
+## Before deploying or making breaking changes
+
+Read **[`pendiente-alpacorp.md`](pendiente-alpacorp.md)** — open P1 items with current
+Alpaca API notes (tick brackets, position-aware risk, fill lifecycle). Update it whenever
+API behavior changes or an item is completed.
+
 ## Before touching code
 
 1. Read `README.md`, `AGENTS.md`, and the doc for the area you change:
@@ -39,14 +45,16 @@ docs/                 Living documentation (obey it; update it when behavior cha
 ```
 
 Core pattern: **the LLM proposes → the deterministic gate authorizes → the executor executes → the
-broker reconciles**. Nothing reaches the broker except via `POST /execute`, always through
-`evaluate_gate()`.
+broker reconciles**. Nothing reaches the broker except via `dispatch()` after `evaluate_gate()`.
+Surfaces: `POST /execute`, armed scheduler tick, `POST /bracket/execute`, conditionals. The graph
+SSE does not dispatch.
 
 ## Pipeline flow
 
 `news → sentiment → options; features; technical; orderblock; institutional; account → market_state → risk → decision → gate`.
-Execution (`execution`) runs only in `POST /execute`. SSE emits one event per node
-(`running → done|error`); the `gate` shows up as a node, surfacing ALLOW/BLOCK/NO_TRADE live.
+Execution is not a pipeline node. SSE emits one event per node (`running → done|error`); the
+`gate` shows up as a node (preview ALLOW/BLOCK/NO_TRADE) and does not submit. Broker submit is
+only via `dispatch()` (`/execute`, armed tick, `/bracket/execute`, conditionals).
 
 ## Verification commands (before closing)
 

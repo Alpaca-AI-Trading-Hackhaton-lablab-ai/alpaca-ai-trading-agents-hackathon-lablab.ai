@@ -22,6 +22,7 @@ TTL_ACCOUNT = 15
 TTL_CONCEPT = 3600
 
 _client = None
+_ttl_mult = 1
 
 
 def is_connected():
@@ -52,6 +53,19 @@ def connect(url=None, client=None):
 def close():
     global _client
     _client = None
+
+
+def set_ttl_multiplier(n):
+    global _ttl_mult
+    try:
+        _ttl_mult = max(1, int(n))
+    except (TypeError, ValueError):
+        _ttl_mult = 1
+    return _ttl_mult
+
+
+def ttl_multiplier():
+    return max(1, int(_ttl_mult))
 
 
 def key(agent, symbol, suffix=""):
@@ -98,7 +112,7 @@ def set(agent, symbol, suffix, value, ttl, adapter=None):
         _client.set(
             key(agent, symbol, suffix),
             _encode(value, adapter),
-            ex=int(ttl),
+            ex=int(ttl) * ttl_multiplier(),
         )
         return True
     except Exception:  # noqa: BLE001

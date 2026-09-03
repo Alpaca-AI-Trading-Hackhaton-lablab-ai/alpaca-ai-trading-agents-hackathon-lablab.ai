@@ -24,7 +24,14 @@ def _num(value, default=None):
         return default
 
 
-def calculate_risk(account_balance, confidence, atr=None, price=None, scores=None):
+def calculate_risk(
+    account_balance,
+    confidence,
+    atr=None,
+    price=None,
+    scores=None,
+    max_credit=None,
+):
     account_balance = float(account_balance or 100000)
     confidence = float(confidence or 0)
     scores = scores or {"buy": 0.0, "sell": 0.0}
@@ -52,6 +59,9 @@ def calculate_risk(account_balance, confidence, atr=None, price=None, scores=Non
 
     position_size = account_balance * risk_percent * confidence_factor * volatility_factor
     position_size = min(position_size, account_balance * _MAX_EQUITY_PCT)
+    cap = _num(max_credit)
+    if cap is not None and cap > 0:
+        position_size = min(position_size, cap)
     position_size = round(position_size, 2)
 
     max_loss = round(position_size * 0.05, 2)
@@ -80,6 +90,7 @@ class RiskAgent(Agent):
             atr=ms.get("atr"),
             price=ms.get("price"),
             scores=score_setup(ms),
+            max_credit=ctx.get("max_credit"),
         )
 
     def message(self, out):
