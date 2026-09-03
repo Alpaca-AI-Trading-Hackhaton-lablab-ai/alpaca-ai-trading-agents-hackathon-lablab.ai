@@ -9,6 +9,7 @@ its `/api` proxy. Style modeled on the `ap-base-fastapi-uv-service` base, focuse
 
 - Read `README.md`, this file, `CLAUDE.md`, and **the docs for the area you touch**:
   `docs/tavily-news-integration.md`, `docs/ddg-concept-lookup.md`,
+  `docs/strategy-smart-money.md`,
   `docs/research/react-agentic-patterns.md`,
   `docs/plans/react-integration-plan.md`, and the parent-monorepo architecture notes
   (`../consideraciones-encontradas.md`, `../analisis-de-integrabilidad.md`).
@@ -46,7 +47,7 @@ its `/api` proxy. Style modeled on the `ap-base-fastapi-uv-service` base, focuse
   `services/` (`alpaca_service`, `news_service`, `config`, `mcp_client`, `db`, `cache`, `secrets`,
   `persist`, `logs`), `docs/`.
 - Pipeline topological order:
-  `news → sentiment → options; features; technical; account → market_state → risk → decision → gate`
+  `news → sentiment → options; features; technical; orderblock; institutional; account → market_state → risk → decision → gate`
   (execution runs only via `POST /execute`).
 - Each node is an `Agent` whose `run(ctx)` writes into the accumulated `ctx` under `agent.node`.
   Keep `PIPELINE_KEYS` in `agents/nodes.py` in sync when adding/renaming a node. Do not put Agent

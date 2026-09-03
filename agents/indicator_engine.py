@@ -17,7 +17,12 @@ INDICATOR_IDS = (
     "sma20",
     "sma50",
     "ema20",
+    "ema3",
+    "ema10",
+    "ema50",
+    "ema100",
     "rsi",
+    "rsi3",
     "macd",
     "volume",
     "atr",
@@ -101,6 +106,15 @@ def _atr(frame, period=14):
     return tr.rolling(period).mean()
 
 
+TF_HOUR = "1Hour"
+TF_DAY = "1Day"
+
+
+def bars_frame(symbol="SPY", timeframe=TF_DAY, limit=200):
+    """Prepared OHLC DataFrame or None. Shared by indicator / OB / flow engines."""
+    return _prepare(get_spy_bars(symbol, timeframe=timeframe, limit=limit))
+
+
 def _points(times, series):
     out = []
     for ts, value in zip(times, series, strict=False):
@@ -111,12 +125,32 @@ def _points(times, series):
     return out
 
 
+def _ema_trend(ema3, ema10, ema50, ema100):
+    if None in (ema3, ema10, ema50, ema100):
+        return None
+    if ema3 > ema10 > ema50 > ema100:
+        return "BULLISH"
+    if ema3 < ema10 < ema50 < ema100:
+        return "BEARISH"
+    return "NEUTRAL"
+
+
+def _rsi_band(rsi3):
+    if rsi3 is None:
+        return "NEUTRAL"
+    if rsi3 < 30:
+        return "OVERSOLD"
+    if rsi3 > 70:
+        return "OVERBOUGHT"
+    return "NEUTRAL"
+
+
 def compute_pack(symbol="SPY", indicators=None):
     """Return candles, overlay series, oscillators, and a last-bar snapshot."""
     enabled = parse_indicators(
         ",".join(indicators) if isinstance(indicators, (list, tuple)) else indicators
     )
-    suffix = ",".join(enabled)
+    suffix = f"{','.join(enabled)}|{TF_HOUR}"
     symbol = (symbol or "SPY").upper()
     return cache.cached(
         "technical",
@@ -130,7 +164,7 @@ def compute_pack(symbol="SPY", indicators=None):
 
 def _compute_pack_uncached(symbol, enabled):
     enabled_set = set(enabled)
-    df = _prepare(get_spy_bars(symbol))
+    df = bars_frame(symbol, timeframe=TF_HOUR, limit=200)
     if df is None:
         return {"error": "No bars data", "symbol": (symbol or "SPY").upper()}
 
@@ -159,8 +193,13 @@ def _compute_pack_uncached(symbol, enabled):
 
     sma20 = close.rolling(20).mean()
     sma50 = close.rolling(50).mean()
+    ema3 = close.ewm(span=3, adjust=False).mean()
+    ema10 = close.ewm(span=10, adjust=False).mean()
     ema20 = close.ewm(span=20, adjust=False).mean()
+    ema50 = close.ewm(span=50, adjust=False).mean()
+    ema100 = close.ewm(span=100, adjust=False).mean()
     rsi = _rsi(close)
+    rsi3 = _rsi(close, period=3)
     ema12 = close.ewm(span=12, adjust=False).mean()
     ema26 = close.ewm(span=26, adjust=False).mean()
     macd = ema12 - ema26
@@ -175,46 +214,83 @@ def _compute_pack_uncached(symbol, enabled):
         overlays["sma20"] = _points(times, sma20)
     if "sma50" in enabled_set:
         overlays["sma50"] = _points(times, sma50)
+    if "ema3" in enabled_set:
+        overlays["ema3"] = _points(times, ema3)
+    if "ema10" in enabled_set:
+        overlays["ema10"] = _points(times, ema10)
     if "ema20" in enabled_set:
         overlays["ema20"] = _points(times, ema20)
+    if "ema50" in enabled_set:
+        overlays["ema50"] = _points(times, ema50)
+    if "ema100" in enabled_set:
+        overlays["ema100"] = _points(times, ema100)
     if "macd" in enabled_set:
         overlays["macd_hist"] = _points(times, macd_hist)
     if "rsi" in enabled_set:
         oscillators["rsi"] = _points(times, rsi)
+    if "rsi3" in enabled_set:
+        oscillators["rsi3"] = _points(times, rsi3)
 
     last = candles[-1] if candles else {}
     sma20_last = _finite(sma20.iloc[-1])
     sma50_last = _finite(sma50.iloc[-1])
     rsi_last = _finite(rsi.iloc[-1])
-    if rsi_last is not None and sma20_last is not None and sma50_last is not None:
-        if rsi_last > 60 and sma20_last > sma50_last:
+    ema3_last = _finite(ema3.iloc[-1])
+    ema10_last = _finite(ema10.iloc[-1])
+    ema50_last = _finite(ema50.iloc[-1])
+    ema100_last = _finite(ema100.iloc[-1])
+    rsi3_last = _finite(rsi3.iloc[-1])
+    ema_trend = _ema_trend(ema3_last, ema10_last, ema50_last, ema100_last)
+    rsi_signal = _rsi_band(rsi3_last)
+
+    if ema_trend is not None:
+        trend = ema_trend
+        if rsi_signal == "OVERSOLD" and ema_trend != "BEARISH":
             signal = "BUY"
-        elif rsi_last < 40 and sma20_last < sma50_last:
+        elif rsi_signal == "OVERBOUGHT" and ema_trend != "BULLISH":
             signal = "SELL"
         else:
             signal = "HOLD"
     else:
-        signal = "HOLD"
-
-    if sma20_last is not None and sma50_last is not None:
-        trend = "BULLISH" if sma20_last > sma50_last else "BEARISH"
-    else:
         trend = "NEUTRAL"
+        if sma20_last is not None and sma50_last is not None:
+            trend = "BULLISH" if sma20_last > sma50_last else "BEARISH"
+        if rsi_last is not None and sma20_last is not None and sma50_last is not None:
+            if rsi_last > 60 and sma20_last > sma50_last:
+                signal = "BUY"
+            elif rsi_last < 40 and sma20_last < sma50_last:
+                signal = "SELL"
+            else:
+                signal = "HOLD"
+        else:
+            signal = "HOLD"
 
     snapshot = {
         "symbol": (symbol or "SPY").upper(),
         "price": last.get("close"),
         "signal": signal,
         "trend": trend,
+        "ema_trend": ema_trend or "NEUTRAL",
+        "rsi_signal": rsi_signal,
     }
     if "sma20" in enabled_set:
         snapshot["sma20"] = sma20_last
     if "sma50" in enabled_set:
         snapshot["sma50"] = sma50_last
+    if "ema3" in enabled_set:
+        snapshot["ema3"] = ema3_last
+    if "ema10" in enabled_set:
+        snapshot["ema10"] = ema10_last
     if "ema20" in enabled_set:
         snapshot["ema20"] = _finite(ema20.iloc[-1])
+    if "ema50" in enabled_set:
+        snapshot["ema50"] = ema50_last
+    if "ema100" in enabled_set:
+        snapshot["ema100"] = ema100_last
     if "rsi" in enabled_set:
         snapshot["rsi"] = rsi_last
+    if "rsi3" in enabled_set:
+        snapshot["rsi3"] = rsi3_last
     if "macd" in enabled_set:
         snapshot["macd"] = _finite(macd.iloc[-1])
         snapshot["macd_signal"] = _finite(macd_signal.iloc[-1])
@@ -266,6 +342,13 @@ def filter_snapshot(snapshot, wanted):
         "trade_bias",
         "technical_signal",
         "option_strategy",
+        "ema_trend",
+        "rsi_signal",
+        "near_bullish",
+        "near_bearish",
+        "institutional_signal",
+        "smart_money_buying",
+        "smart_money_selling",
         *wanted,
         "macd_signal",
         "macd_hist",

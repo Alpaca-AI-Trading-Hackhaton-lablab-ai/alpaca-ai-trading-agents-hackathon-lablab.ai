@@ -9,7 +9,7 @@ Tavily is the **news source** feeding the sentiment agent. It is the first node
 in the pipeline defined in `backend.py`:
 
 ```
-news → sentiment → options → features → technical → market_state
+news → sentiment → options → features → technical → orderblock → institutional → market_state
      → account → risk → decision → gate → execute
 ```
 

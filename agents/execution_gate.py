@@ -32,11 +32,23 @@ def _num(value, default=0.0):
         return float(default)
 
 
-def evaluate_gate(decision, account, positions, open_orders, clock):
+def evaluate_gate(decision, account, positions, open_orders, clock, plan=None):
     account = account or {}
     positions = positions or []
     open_orders = open_orders or []
     clock = clock or {}
+
+    if plan:
+        side = str((plan or {}).get("side") or "").lower()
+        size = (plan or {}).get("size") or {}
+        decision = {
+            **(decision or {}),
+            "action": "BUY" if side == "buy" else "SELL" if side == "sell" else (decision or {}).get("action"),
+            "symbol": (plan or {}).get("symbol") or (decision or {}).get("symbol"),
+            "position_size": size.get("notional")
+            if size.get("notional") is not None
+            else (decision or {}).get("position_size"),
+        }
 
     action = (decision or {}).get("action")
     symbol = (decision or {}).get("symbol")
@@ -114,6 +126,35 @@ def evaluate_gate(decision, account, positions, open_orders, clock):
         "armed" if config.is_armed() else "safe (dry-run)", hard=False)
     add("credentials", mode == "paper",
         "paper" if mode == "paper" else "demo (no broker)", hard=False)
+
+    if plan:
+        from services.bracket_plan import validate_plan
+
+        v = validate_plan(plan)
+        add(
+            "plan",
+            v["ok"],
+            "; ".join(v["errors"]) if v["errors"] else "valid",
+        )
+        r = v.get("r_multiple")
+        add(
+            "r_multiple",
+            r is not None and r >= 1,
+            f"{r:.2f}" if r is not None else "n/a",
+        )
+        ml = v.get("max_loss")
+        raw_cap = (decision or {}).get("max_loss")
+        try:
+            risk_cap = float(raw_cap) if raw_cap is not None else None
+        except (TypeError, ValueError):
+            risk_cap = None
+        if risk_cap is None or risk_cap <= 0:
+            risk_cap = ml
+        add(
+            "max_loss",
+            ml is None or risk_cap is None or ml <= risk_cap,
+            f"${ml or 0:,.2f} / ${risk_cap or 0:,.2f}" if ml is not None else "n/a",
+        )
 
     reasons = [f"{c['name']}: {c['detail']}" for c in checks if c["hard"] and not c["ok"]]
     verdict = "BLOCK" if reasons else "ALLOW"

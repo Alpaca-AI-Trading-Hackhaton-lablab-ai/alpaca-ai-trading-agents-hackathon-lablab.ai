@@ -61,6 +61,26 @@ class AgentSettings(Base):
     )
 
 
+class ConditionalOrder(Base):
+    __tablename__ = "conditional_orders"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    symbol: Mapped[str] = mapped_column(String(16), index=True)
+    status: Mapped[str] = mapped_column(String(16), index=True)
+    trigger: Mapped[dict] = mapped_column(JSON)
+    plan: Mapped[dict] = mapped_column(JSON)
+    token_hash: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    created_ts: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        index=True,
+    )
+    triggered_ts: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+
+
 class InvocationLog(Base):
     __tablename__ = "invocation_logs"
 

@@ -6,7 +6,7 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException
+from fastapi import Body, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 
@@ -17,7 +17,7 @@ from agents.feature_agent import get_market_features
 from agents.indicator_engine import compute_pack, parse_indicators
 from agents.nodes import PIPELINE_KEYS, build_pipeline
 from agents.technical_agent import technical_analysis
-from services import cache, config, db, logs, persist
+from services import bracket, cache, conditional, config, db, logs, persist
 from services.schemas import (
     AccountOut,
     AuditOut,
@@ -284,7 +284,14 @@ def account() -> AccountOut:
 
 @app.get("/spy")
 def spy(symbol: str = "SPY") -> QuoteOut:
-    return get_spy_price(symbol)
+    quote = get_spy_price(symbol)
+    price = quote.get("price") if isinstance(quote, dict) else None
+    if price is not None:
+        try:
+            conditional.evaluate_triggers(_symbol(symbol), float(price))
+        except Exception:
+            pass
+    return quote
 
 
 @app.get("/news")
@@ -607,6 +614,7 @@ def control_arm(enabled: bool = True) -> ControlOut:
 @app.post("/control/kill")
 def control_kill(enabled: bool = True) -> ControlOut:
     config.set_kill(enabled)
+    cancelled = conditional.cancel_armed() if enabled else 0
     _audit(
         {
             "symbol": None,
@@ -615,7 +623,7 @@ def control_kill(enabled: bool = True) -> ControlOut:
             "status": "KILL" if enabled else "CLEARED",
             "notional": None,
             "order_id": None,
-            "reasons": None,
+            "reasons": [f"cancelled {cancelled} conditionals"] if cancelled else None,
         }
     )
     return config.control_state()
@@ -652,6 +660,77 @@ async def mcp_tools():
             "error": str(e),
             "traceback": traceback.format_exc(),
         }
+
+
+@app.post("/bracket/preview")
+def bracket_preview(body: dict = Body(...)):
+    plan = body.get("plan") or body
+    trigger = body.get("trigger")
+    return bracket.preview_plan(plan, trigger)
+
+
+@app.post("/bracket/execute")
+def bracket_execute(body: dict = Body(...)):
+    plan = body.get("plan") or body
+    result = bracket.execute_plan(
+        plan,
+        get_account_info(),
+        get_positions().get("positions", []),
+        get_open_orders(_symbol((plan or {}).get("symbol"))),
+        get_market_clock(),
+        park_emulated=True,
+    )
+    parked = []
+    if result.get("status") not in ("BLOCKED", "NO_TRADE", "DRY_RUN"):
+        parked = conditional.park_rows(result.get("emulated") or [])
+    _audit(
+        {
+            "symbol": (plan or {}).get("symbol"),
+            "action": (result.get("decision") or {}).get("action"),
+            "verdict": (result.get("gate") or {}).get("verdict"),
+            "status": result.get("status"),
+            "notional": (result.get("gate") or {}).get("notional"),
+            "order_id": result.get("order_id"),
+            "reasons": (result.get("gate") or {}).get("reasons"),
+        }
+    )
+    if parked:
+        result["parked"] = parked
+    return result
+
+
+@app.get("/conditional-orders")
+def conditional_orders_list(symbol: str | None = None):
+    return {"orders": conditional.list_orders(symbol)}
+
+
+@app.post("/conditional-orders")
+def conditional_orders_create(body: dict = Body(...)):
+    plan = body.get("plan")
+    trigger = body.get("trigger")
+    if not plan or not trigger:
+        raise HTTPException(status_code=400, detail="plan and trigger required")
+    created = conditional.create_order(plan, trigger)
+    if not created.get("ok"):
+        return {
+            "status": created.get("status") or "BLOCKED",
+            "errors": created.get("errors"),
+            "gate": created.get("gate"),
+        }
+    return created["order"]
+
+
+@app.delete("/conditional-orders/{oid}")
+def conditional_orders_delete(oid: str):
+    ok = conditional.cancel_order(oid)
+    if not ok:
+        raise HTTPException(status_code=404, detail="not found or not cancellable")
+    return {"ok": True, "id": oid}
+
+
+@app.post("/webhook/{token}")
+def webhook_fire(token: str):
+    return conditional.fire_webhook(token)
 
 
 @app.get("/buy")

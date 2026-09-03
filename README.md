@@ -9,7 +9,7 @@ Dashboard (separate repo): [alpacore-tradelix-web](https://github.com/Alpaca-AI-
 | Piece | Role |
 |---|---|
 | `backend.py` | FastAPI app, `/pipeline` + SSE `/pipeline/stream`, `/execute`, `/control`, `/settings`, `/bars`, `/logs` |
-| `agents/` | Linear pipeline: news → sentiment → features/technical → market state → risk → decision → gate |
+| `agents/` | Linear pipeline: news → sentiment → features/technical → orderblock/institutional → market state → risk → decision → gate |
 | `services/` | Alpaca paper client, news, Postgres (`db` / `persist` / `logs` / `secrets`), Redis cache, Pydantic schemas |
 | `docker-compose.yml` | Postgres 16 (**5433**), Redis 7 (**6380**), API **tradelix-backend** (**8000**) |
 | `tests/` | `python -m unittest discover -s tests -v` |

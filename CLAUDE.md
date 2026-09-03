@@ -15,7 +15,7 @@ deterministic gate** and **paper-only**. The React dashboard `tradelix-poc-web` 
 
 1. Read `README.md`, `AGENTS.md`, and the doc for the area you change:
    `docs/tavily-news-integration.md` (news→sentiment), `docs/ddg-concept-lookup.md`
-   (Instant Answer for unknown terms), `docs/research/react-agentic-patterns.md`,
+   (Instant Answer for unknown terms), `docs/strategy-smart-money.md` (EMA/RSI3/OB/flow), `docs/research/react-agentic-patterns.md`,
    `docs/plans/react-integration-plan.md` (approved ReAct plan), and the parent-monorepo
    architecture notes.
 2. If you use FastAPI, `alpaca-py`, `langchain-groq`, `tavily-python`, Pydantic, or Uvicorn, check
@@ -44,7 +44,7 @@ broker reconciles**. Nothing reaches the broker except via `POST /execute`, alwa
 
 ## Pipeline flow
 
-`news → sentiment → options; features; technical; account → market_state → risk → decision → gate`.
+`news → sentiment → options; features; technical; orderblock; institutional; account → market_state → risk → decision → gate`.
 Execution (`execution`) runs only in `POST /execute`. SSE emits one event per node
 (`running → done|error`); the `gate` shows up as a node, surfacing ALLOW/BLOCK/NO_TRADE live.
 

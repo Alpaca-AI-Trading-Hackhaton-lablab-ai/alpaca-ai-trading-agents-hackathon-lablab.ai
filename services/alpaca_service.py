@@ -8,8 +8,15 @@ from alpaca.data.historical.stock import StockHistoricalDataClient
 from alpaca.data.requests import StockBarsRequest, StockLatestQuoteRequest
 from alpaca.data.timeframe import TimeFrame
 from alpaca.trading.client import TradingClient
-from alpaca.trading.enums import OrderSide, QueryOrderStatus, TimeInForce
-from alpaca.trading.requests import GetOrdersRequest, MarketOrderRequest
+from alpaca.trading.enums import OrderClass, OrderSide, QueryOrderStatus, TimeInForce
+from alpaca.trading.requests import (
+    GetOrdersRequest,
+    LimitOrderRequest,
+    MarketOrderRequest,
+    StopLossRequest,
+    TakeProfitRequest,
+    TrailingStopOrderRequest,
+)
 from dotenv import load_dotenv
 
 from services import cache, secrets
@@ -80,19 +87,26 @@ def _demo_price(symbol):
     return DEMO_PRICES.get(_symbol(symbol), 100.0)
 
 
-def _demo_bars(symbol):
+_TF_MAP = {
+    "1Day": TimeFrame.Day,
+    "1Hour": TimeFrame.Hour,
+}
+
+
+def _demo_bars(symbol, timeframe="1Day", limit=200):
     end = datetime.now()
     base = _demo_price(symbol)
+    step = timedelta(hours=1) if timeframe == "1Hour" else timedelta(days=1)
     rows = []
-
-    for i in range(90):
-        day = end - timedelta(days=89 - i)
+    count = max(2, int(limit))
+    for i in range(count):
+        stamp = end - step * (count - 1 - i)
         drift = i * 0.18
         wobble = math.sin(i / 5) * (base * 0.015)
         close = round(base - 9 + drift + wobble, 2)
         rows.append(
             {
-                "timestamp": day,
+                "timestamp": stamp,
                 "symbol": _symbol(symbol),
                 "open": round(close * 0.995, 2),
                 "high": round(close * 1.01, 2),
@@ -101,7 +115,6 @@ def _demo_bars(symbol):
                 "volume": 1_000_000 + i * 10_000,
             }
         )
-
     return pd.DataFrame(rows)
 
 
@@ -181,19 +194,25 @@ def get_spy_price(symbol="SPY"):
         }
 
 
-def get_spy_bars(symbol="SPY"):
+def get_spy_bars(symbol="SPY", timeframe="1Day", limit=200):
+    """OHLC from Alpaca IEX (or demo). `timeframe` is 1Day or 1Hour."""
     symbol = _symbol(symbol)
+    tf_key = timeframe if timeframe in _TF_MAP else "1Day"
+    limit = max(2, int(limit or 200))
 
     if not _has_alpaca_credentials():
-        return _demo_bars(symbol)
+        return _demo_bars(symbol, timeframe=tf_key, limit=limit)
 
     try:
         end = datetime.now()
-        start = end - timedelta(days=90)
+        if tf_key == "1Hour":
+            start = end - timedelta(days=max(21, limit // 5 + 7))
+        else:
+            start = end - timedelta(days=max(limit, 200))
 
         request = StockBarsRequest(
             symbol_or_symbols=[symbol],
-            timeframe=TimeFrame.Day,
+            timeframe=_TF_MAP[tf_key],
             start=start,
             end=end,
             feed=DataFeed.IEX,
@@ -202,11 +221,13 @@ def get_spy_bars(symbol="SPY"):
         bars = _get_data_client().get_stock_bars(request)
         df = bars.df.reset_index()
         if df.empty:
-            return _demo_bars(symbol)
+            return _demo_bars(symbol, timeframe=tf_key, limit=limit)
+        if len(df) > limit:
+            df = df.tail(limit).reset_index(drop=True)
         return df
 
     except Exception:
-        return _demo_bars(symbol)
+        return _demo_bars(symbol, timeframe=tf_key, limit=limit)
 
 
 def _order_dict(order):
@@ -257,6 +278,106 @@ def submit_market_order(symbol, side, notional):
     order = _get_trading_client().submit_order(order_data=request)
     result = _order_dict(order)
     result["mode"] = "paper"
+    return result
+
+
+def submit_bracket_order(
+    symbol,
+    side,
+    notional,
+    take_profit_price,
+    stop_loss_price,
+    entry_type="market",
+    limit_price=None,
+    qty=None,
+):
+    """Paper bracket: 1 entry + 1 TP (limit) + 1 SL (stop). _assert_paper intact."""
+    symbol = _symbol(symbol)
+    _assert_paper()
+
+    if not _has_alpaca_credentials():
+        return {
+            "status": "demo",
+            "mode": "demo",
+            "symbol": symbol,
+            "side": str(side).lower(),
+            "notional": float(notional) if notional is not None else None,
+            "order_class": "bracket",
+            "take_profit": {"limit_price": take_profit_price},
+            "stop_loss": {"stop_price": stop_loss_price},
+            "warning": "Missing Alpaca paper credentials",
+        }
+
+    order_side = OrderSide.BUY if str(side).lower() == "buy" else OrderSide.SELL
+    tp = TakeProfitRequest(limit_price=float(take_profit_price))
+    sl = StopLossRequest(stop_price=float(stop_loss_price))
+    common = {
+        "symbol": symbol,
+        "side": order_side,
+        "time_in_force": TimeInForce.DAY,
+        "order_class": OrderClass.BRACKET,
+        "take_profit": tp,
+        "stop_loss": sl,
+    }
+    if qty is not None:
+        common["qty"] = float(qty)
+    else:
+        common["notional"] = float(notional)
+
+    if str(entry_type).lower() == "limit" and limit_price is not None:
+        request = LimitOrderRequest(limit_price=float(limit_price), **common)
+    else:
+        request = MarketOrderRequest(**common)
+
+    order = _get_trading_client().submit_order(order_data=request)
+    result = _order_dict(order)
+    result["mode"] = "paper"
+    result["order_class"] = "bracket"
+    return result
+
+
+def submit_trailing_stop_order(
+    symbol,
+    side,
+    notional,
+    trail_percent=None,
+    trail_price=None,
+    qty=None,
+):
+    """Standalone trailing stop. Native only when the plan is trailing-only."""
+    symbol = _symbol(symbol)
+    _assert_paper()
+
+    if not _has_alpaca_credentials():
+        return {
+            "status": "demo",
+            "mode": "demo",
+            "symbol": symbol,
+            "side": str(side).lower(),
+            "notional": float(notional) if notional is not None else None,
+            "type": "trailing_stop",
+            "warning": "Missing Alpaca paper credentials",
+        }
+
+    order_side = OrderSide.BUY if str(side).lower() == "buy" else OrderSide.SELL
+    kwargs = {
+        "symbol": symbol,
+        "side": order_side,
+        "time_in_force": TimeInForce.GTC,
+    }
+    if qty is not None:
+        kwargs["qty"] = float(qty)
+    else:
+        kwargs["notional"] = float(notional)
+    if trail_percent is not None:
+        kwargs["trail_percent"] = float(trail_percent)
+    if trail_price is not None:
+        kwargs["trail_price"] = float(trail_price)
+    request = TrailingStopOrderRequest(**kwargs)
+    order = _get_trading_client().submit_order(order_data=request)
+    result = _order_dict(order)
+    result["mode"] = "paper"
+    result["type"] = "trailing_stop"
     return result
 
 

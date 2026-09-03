@@ -10,9 +10,11 @@ from agents.account_agent import AccountAgent
 from agents.decision_agent import DecisionAgent, DecisionReactAgent
 from agents.execution_gate import GateAgent
 from agents.feature_agent import FeatureAgent
+from agents.institutional_flow import InstitutionalAgent
 from agents.market_state_agent import MarketStateAgent
 from agents.news_agent import NewsAgent
 from agents.options_agent import OptionsAgent
+from agents.orderblock_engine import OrderblockAgent
 from agents.risk_manager import RiskAgent
 from agents.sentiment_agent import SentimentAgent, SentimentReactAgent
 from agents.technical_agent import TechnicalAgent
@@ -24,6 +26,8 @@ PIPELINE_KEYS = (
     "options",
     "features",
     "technical",
+    "orderblock",
+    "institutional",
     "market_state",
     "account",
     "risk",
@@ -46,6 +50,8 @@ def build_pipeline(deep=False, deep_sentiment=None, deep_decision=None):
         OptionsAgent(),
         FeatureAgent(),
         TechnicalAgent(),
+        OrderblockAgent(),
+        InstitutionalAgent(),
         MarketStateAgent(),
         AccountAgent(),
         RiskAgent(),

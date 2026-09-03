@@ -70,6 +70,8 @@ A new `agents/research_tools.py` exposing a whitelist that wraps existing servic
 | `lookup_concept(query)` | `services/concept_lookup.py` (DDG Instant Answer) | ✅ |
 | `get_market_features(symbol)` | `agents/feature_agent.py` | ✅ |
 | `technical_analysis(symbol)` | `agents/technical_agent.py` | ✅ |
+| `detect_orderblocks(symbol)` | `agents/orderblock_engine.py` | ✅ |
+| `detect_smart_money(symbol)` | `agents/institutional_flow.py` | ✅ |
 | `get_account_info()` | `services/alpaca_service.py` | ✅ |
 
 **No `submit_market_order`, no `execute_trade`, no gate bypass.** The registry validates the tool

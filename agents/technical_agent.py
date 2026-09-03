@@ -18,6 +18,7 @@ class TechnicalAgent(Agent):
         return technical_analysis(ctx["symbol"], ctx.get("indicators"))
 
     def message(self, out):
-        rsi = out.get("rsi")
+        rsi3 = out.get("rsi3")
+        rsi = out.get("rsi") if rsi3 is None else rsi3
         extra = f" (RSI {rsi})" if rsi is not None else ""
         return self._err(out) or f"{out.get('signal')}{extra}"

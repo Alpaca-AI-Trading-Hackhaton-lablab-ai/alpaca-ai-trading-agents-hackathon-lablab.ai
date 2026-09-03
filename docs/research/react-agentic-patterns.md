@@ -98,7 +98,7 @@ Port the *patterns*, not the rough edges. Things to **do better than** the refer
 ## 5. Mapping to the Alpaca pipeline
 
 Current pipeline (`backend.py:run_pipeline`) runs each agent **once**, linearly:
-`news → sentiment → options; features; technical; account → market_state → risk → decision → gate`.
+`news → sentiment → options; features; technical; orderblock; institutional; account → market_state → risk → decision → gate`.
 No agent loops. Mapping the ported patterns:
 
 | Pattern | Applies to | Effect |
