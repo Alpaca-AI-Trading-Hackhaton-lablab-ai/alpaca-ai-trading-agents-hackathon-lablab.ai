@@ -46,7 +46,8 @@ pushed before a deploy, plus the live instance / EIP / security-group details).
 
 Live at **http://alpacorp.ribartra.org/** (`3.21.62.12`, `us-east-2`). The box runs
 `t3.small` rather than `t3.medium` because the AWS account is on the Free Plan, which
-only permits free-tier-eligible instance types.
+only permits free-tier-eligible instance types. Frontend nginx/Compose is the same
+file as local; on the box set `WEB_PORT=80` in the web project's `.env`.
 
 ## Run with Docker (recommended)
 

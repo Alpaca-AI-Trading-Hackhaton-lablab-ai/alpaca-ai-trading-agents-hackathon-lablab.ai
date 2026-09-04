@@ -23,7 +23,7 @@
 | backend | `pendiente-alpacorp.md` | This backlog + deploy target. Update status after each cut. |
 | backend | `AGENTS.md` | Deploy/push rules for agents. |
 | backend | `CLAUDE.md` | Same rules (takes precedence over AGENTS). |
-| backend | `README.md` | One-box `t3.medium` pointer. |
+| backend | `README.md` | One-box `t3.small` pointer. |
 | frontend | `AGENTS.md` | Points here; same single-EC2 + push rule. |
 | frontend | `README.md` | Same one-box pointer. |
 
@@ -54,8 +54,12 @@ alternatives if the box turns out to be tight.
 | Key pair | `alpacore-poc` (ed25519) |
 | Base | Ubuntu 24.04, Docker CE + Compose plugin, 30 GB gp3 |
 
-The frontend Compose is overridden on the box to publish **`80:80`** instead of `3200:80`,
-so the domain needs no port. Both stacks run `restart: unless-stopped`.
+Same frontend `nginx.conf` and `docker-compose.yml` locally and on the box (gzip, asset
+cache, `/api` → backend). nginx always listens on container `:80`. Host port is
+`WEB_PORT` (default **3200** for local). On the box set `WEB_PORT=80` in the web
+project `.env` so the domain needs no port — do not fork nginx. An existing
+`docker-compose.override.yml` on the instance is equivalent and must stay untracked.
+Both stacks run `restart: unless-stopped`.
 
 **The frontend repo is private**, so the box cannot `git clone` it without a token. It is
 uploaded as a `git archive` tarball from the operator machine instead. Fix this by adding a
