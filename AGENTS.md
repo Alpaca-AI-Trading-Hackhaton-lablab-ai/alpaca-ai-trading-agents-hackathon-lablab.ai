@@ -12,9 +12,12 @@ its `/api` proxy. Style modeled on the `ap-base-fastapi-uv-service` base, focuse
   then implement with a capable model. **Edit and `git push` to `main`** these files when
   the backlog or deploy contract changes: `pendiente-alpacorp.md`, this file, `CLAUDE.md`,
   and `../tradelix-poc-web/AGENTS.md`. Local-only edits do not count.
-- **Deploy target:** one Amazon EC2 **`t3.medium`** running **both** the backend Compose
+- **Deploy target:** one Amazon EC2 **`t3.small`** running **both** the backend Compose
   stack and the frontend Compose stack (shared `tradelix` network). Do not split them
-  across two instances. Push both `main` branches before pulling on that box.
+  across two instances. Push both `main` branches before pulling on that box. The type
+  is `t3.small`, not the originally planned `t3.medium`: the AWS account is on the Free
+  Plan and `RunInstances` rejects non-free-tier types. Live instance details (EIP,
+  security group, key pair) are in `pendiente-alpacorp.md`.
 
 ## Before changing code
 

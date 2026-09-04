@@ -15,6 +15,17 @@ load_dotenv()
 _NEWS_DAYS = int(os.getenv("TAVILY_NEWS_DAYS", "7") or 7)
 _MAX_RESULTS = int(os.getenv("TAVILY_MAX_RESULTS", "10") or 10)
 
+# Tavily returns whole scraped pages: prose interleaved with nav menus, cookie
+# banners and unrelated ticker tables. Only the prose carries sentiment signal,
+# and every junk character is a Groq token we pay for — the sentiment prompt
+# interpolates this field verbatim. Condense once here, where the article
+# enters ctx, so the LLM prompt and the API response both shrink.
+_CONTENT_CHARS = int(os.getenv("TAVILY_CONTENT_CHARS", "400") or 400)
+
+# Chrome arrives as short fragments ("Latest News", "More", "Back to the Top");
+# real sentences run long. Length alone separates them well enough.
+_MIN_PROSE_CHARS = 60
+
 
 def _demo_news(symbol):
     symbol = (symbol or "SPY").upper()
@@ -30,6 +41,21 @@ def _demo_news(symbol):
     ]
 
 
+def _condense(text):
+    """Drop page chrome from a scraped article and cap what survives."""
+    if not text:
+        return ""
+    lines = [" ".join(raw.split()) for raw in str(text).splitlines()]
+    prose = " ".join(line for line in lines if len(line) >= _MIN_PROSE_CHARS)
+    # Every line was short: the article is a stub, not chrome. Keep it whole
+    # rather than returning nothing.
+    prose = prose or " ".join(str(text).split())
+    if len(prose) <= _CONTENT_CHARS:
+        return prose
+    head, sep, _ = prose[:_CONTENT_CHARS].rpartition(" ")
+    return (head if sep else prose[:_CONTENT_CHARS]) + "…"
+
+
 def _clean(results):
     """Normalize Tavily results to the shape the sentiment agent consumes,
     preserving url + published_date so downstream can weight recency."""
@@ -40,7 +66,7 @@ def _clean(results):
         items.append(
             {
                 "title": r.get("title") or "Untitled",
-                "content": r.get("content") or r.get("summary") or "",
+                "content": _condense(r.get("content") or r.get("summary") or ""),
                 "url": r.get("url", ""),
                 "published_date": r.get("published_date", ""),
                 "score": r.get("score"),
