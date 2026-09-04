@@ -107,3 +107,10 @@ python -m unittest discover -s tests -v
 | POST | `/execute?symbol=SPY` | Gate then paper order; default is `DRY_RUN` |
 
 Do not point this at a live Alpaca account.
+
+## Contributors
+
+- [@Baneado85](https://github.com/Baneado85)
+- [@Kashif-Javed](https://github.com/Muhammad-Kashif-javed)
+- [@ribartra](https://github.com/ribartra)
+
