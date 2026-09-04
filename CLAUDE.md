@@ -19,8 +19,11 @@ with a lighter model + web search, then implement with a capable model. **Edit a
 to `main`:** `pendiente-alpacorp.md`, `AGENTS.md`, this file, and the sibling
 `tradelix-poc-web/AGENTS.md`. Deploy only after those pushes.
 
-**Deploy target:** a single EC2 **`t3.medium`** hosting backend + frontend (two Compose
-projects, one box, network `tradelix`). Paper only.
+**Deploy target:** a single EC2 **`t3.small`** hosting backend + frontend (two Compose
+projects, one box, network `tradelix`). Paper only. It is `t3.small` and not the
+originally planned `t3.medium` because the AWS account is on the Free Plan, which
+rejects non-free-tier instance types — see `pendiente-alpacorp.md` for the live
+instance, EIP, and security-group details.
 
 ## Before touching code
 
@@ -81,7 +84,7 @@ saying so.
 - Keys in Postgres override `.env` when set. `GET /settings` never returns key values.
 - Execution edge: `EXECUTE_ENABLED` (arm-to-execute, default false), `KILL_SWITCH`,
   `MAX_SYMBOL_EXPOSURE_PCT` (0.10), `MAX_TOTAL_EXPOSURE_PCT` (0.30), `TAVILY_NEWS_DAYS`,
-  `TAVILY_MAX_RESULTS`. Read them through `services/config.py`.
+  `TAVILY_MAX_RESULTS`, `TAVILY_CONTENT_CHARS` (400). Read them through `services/config.py`.
 
 ## Frontend contract
 

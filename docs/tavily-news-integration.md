@@ -33,6 +33,7 @@ Set in the project `.env` (see `.env.example`):
 | `TAVILY_API_KEY` | no* | — | Tavily API key (`tvly-...`). |
 | `TAVILY_NEWS_DAYS` | no | `7` | Recency window for the news search, in days. |
 | `TAVILY_MAX_RESULTS` | no | `10` | Max articles returned per query. |
+| `TAVILY_CONTENT_CHARS` | no | `400` | Per-article cap on `content` after chrome is stripped. |
 
 \* If `TAVILY_API_KEY` is absent, `news_service` returns **demo news** so the
 pipeline still runs offline. The rest of the pipeline degrades gracefully:
@@ -100,6 +101,23 @@ Each article is normalized by `_clean()` to:
 
 `title` and `content` are what the sentiment agent reads; `url`, `published_date`
 and `score` are carried through for recency weighting and the frontend.
+
+### Why `content` is condensed
+
+`search_depth="advanced"` returns the **whole scraped page**, not a snippet: nav
+menus, cookie banners, "Back to the Top", and tables of unrelated tickers sit
+inline with the article body. That field is interpolated verbatim into the
+sentiment prompt (`agents/sentiment_agent.py`), so the chrome was both costing
+Groq tokens and diluting the signal — while the frontend never reads it at all
+(`market-client.ts` types `news` as `unknown`).
+
+`_condense()` keeps only lines of at least 60 characters — real sentences run
+long, chrome arrives as short fragments — then truncates at a word boundary to
+`TAVILY_CONTENT_CHARS`. An article whose every line is short is kept whole: it
+is a stub, not chrome.
+
+Measured on AAPL with 10 articles: 17,918 → 3,956 chars (~4,479 → ~989 prompt
+tokens), and the `/pipeline` response fell from 49.8 KB to 21.8 KB.
 
 ## How sentiment uses it
 

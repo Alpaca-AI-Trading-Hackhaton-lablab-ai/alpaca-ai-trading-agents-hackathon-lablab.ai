@@ -11,9 +11,10 @@
 2. **Then implement** with a capable model. Do not skip step 1.
 3. **Modify and push** the contract files below to **`main`** in both repos. A local-only
    edit is not enough — deploy reads GitHub `main`.
-4. **Only after those pushes**, deploy **backend + frontend on one EC2 `t3.medium`**
+4. **Only after those pushes**, deploy **backend + frontend on one EC2 `t3.small`**
    (single box; both Docker Compose stacks; shared `tradelix` network). Not two
-   instances, not Fargate/ECS for this PoC.
+   instances, not Fargate/ECS for this PoC. See the instance table below for why
+   the type is `t3.small` and not the originally planned `t3.medium`.
 
 ### Files that must be edited and pushed
 
@@ -29,13 +30,38 @@
 Backend remote: `Alpaca-AI-Trading-Hackhaton-lablab-ai/alpaca-ai-trading-agents-hackathon-lablab.ai`  
 Frontend remote: `Alpaca-AI-Trading-Hackhaton-lablab-ai/alpacore-tradelix-web`
 
-### Single EC2 `t3.medium` (paper PoC)
+### Single EC2 (paper PoC) — deployed 2026-09-03
 
 - One instance, both repos cloned (or pulled) from `main`.
 - Start backend compose first (`postgres` + `redis` + `tradelix-backend:8000`, network `tradelix`).
-- Then frontend compose (`tradelix-poc-web:3200` → nginx `/api` → `tradelix-backend:8000`).
-- Paper only. Secrets live in the backend `.env` on the box, never in git.
-- `t3.medium` is unlimited-credit by default — watch surplus CPU on a 24h hackathon box.
+- Then frontend compose (nginx `/api` → `tradelix-backend:8000`).
+- Paper only. Secrets live in the backend `.env` on the box (mode `600`), never in git.
+
+**Instance type is `t3.small`, not `t3.medium`.** AWS account `010539085752` is on the
+Free Plan (US$100 credits, expires 2027-03-03), which only permits free-tier-eligible
+instance types; `RunInstances` rejects `t3.medium` outright with
+`InvalidParameterCombination`. `t3.small` gives 2 vCPU / 2 GiB instead of 2 vCPU / 4 GiB,
+so the bootstrap provisions **4 GB of swap** — the Vite build is what spikes memory.
+Raising the account to a PAID plan would unlock `t3.medium`; `m7i-flex.large`
+(2 vCPU / 8 GiB) and `c7i-flex.large` (2 vCPU / 4 GiB) are free-tier-eligible
+alternatives if the box turns out to be tight.
+
+| | |
+|---|---|
+| Instance | `i-096fb4520e41cf74a` — `t3.small`, `us-east-2a` (Ohio) |
+| Address | `3.21.62.12` (EIP `eipalloc-06035fe8e43bbb14e`) → `alpacorp.ribartra.org` |
+| Security group | `sg-05e4f56ed4fffc069` — 22 from the operator IP only, 80/443 public |
+| Key pair | `alpacore-poc` (ed25519) |
+| Base | Ubuntu 24.04, Docker CE + Compose plugin, 30 GB gp3 |
+
+The frontend Compose is overridden on the box to publish **`80:80`** instead of `3200:80`,
+so the domain needs no port. Both stacks run `restart: unless-stopped`.
+
+**The frontend repo is private**, so the box cannot `git clone` it without a token. It is
+uploaded as a `git archive` tarball from the operator machine instead. Fix this by adding a
+deploy key on the instance if the deploy has to be self-service.
+
+Do not free the second EIP `16.58.127.199` — it backs the apex `ribartra.org`.
 
 ---
 

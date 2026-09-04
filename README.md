@@ -39,10 +39,14 @@ Keys saved later in the UI (`PUT /settings`) override `.env`. `GET /settings` ne
 
 ## Deploy (single EC2)
 
-Hackathon target is **one** `t3.medium`: clone/pull **`main`** for this repo and
+Hackathon target is **one** `t3.small`: clone/pull **`main`** for this repo and
 `alpacore-tradelix-web`, then `docker compose up` here first and the web repo second.
 See [`pendiente-alpacorp.md`](pendiente-alpacorp.md) (files that must be edited and
-pushed before a deploy).
+pushed before a deploy, plus the live instance / EIP / security-group details).
+
+Live at **http://alpacorp.ribartra.org/** (`3.21.62.12`, `us-east-2`). The box runs
+`t3.small` rather than `t3.medium` because the AWS account is on the Free Plan, which
+only permits free-tier-eligible instance types.
 
 ## Run with Docker (recommended)
 
