@@ -13,7 +13,7 @@ deterministic gate** and **paper-only**. The React dashboard `tradelix-poc-web` 
 
 ## Before deploying or making breaking changes
 
-Read **[`pendiente-alpacorp.md`](pendiente-alpacorp.md)** — P1 is done; P2 remains.
+Read **[`pendiente-alpacorp.md`](pendiente-alpacorp.md)** — P1 and P2 are done.
 Alpaca note: native brackets need integer `qty`, not `notional`. Research that file
 with a lighter model + web search, then implement with a capable model. **Edit and push
 to `main`:** `pendiente-alpacorp.md`, `AGENTS.md`, this file, and the sibling
@@ -54,7 +54,8 @@ docs/                 Living documentation (obey it; update it when behavior cha
 
 Core pattern: **the LLM proposes → the deterministic gate authorizes → the executor executes → the
 broker reconciles**. Nothing reaches the broker except via `dispatch()` after `evaluate_gate()`.
-Surfaces: `POST /execute`, armed scheduler tick, `POST /bracket/execute`, conditionals. The graph
+Surfaces: `POST /execute` (alias `POST /bracket/execute`), armed scheduler tick, conditionals,
+and `mcp_client.place_order` (qty×price → `dispatch`, no MCP server). The graph
 SSE does not dispatch.
 
 ## Pipeline flow
@@ -62,7 +63,8 @@ SSE does not dispatch.
 `news → sentiment → options; features; technical; orderblock; institutional; account → market_state → risk → decision → gate`.
 Execution is not a pipeline node. SSE emits one event per node (`running → done|error`); the
 `gate` shows up as a node (preview ALLOW/BLOCK/NO_TRADE) and does not submit. Broker submit is
-only via `dispatch()` (`/execute`, armed tick, `/bracket/execute`, conditionals).
+only via `dispatch()` (`/execute`, armed tick, `/bracket/execute` alias, conditionals,
+`place_order` adapter).
 
 ## Verification commands (before closing)
 

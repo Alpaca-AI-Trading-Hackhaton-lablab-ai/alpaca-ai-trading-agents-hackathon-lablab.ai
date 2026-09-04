@@ -1,8 +1,9 @@
 """Paper executor: gate then dispatch. Not in the SSE pipeline.
 
 Nothing reaches the broker except via `dispatch()` after `evaluate_gate()`.
-HTTP/tick surfaces: POST /execute, armed scheduler tick, POST /bracket/execute,
-conditionals. The graph SSE only previews the gate.
+HTTP/tick surfaces: POST /execute (alias POST /bracket/execute), armed
+scheduler tick, conditionals, mcp_client.place_order. The graph SSE only
+previews the gate.
 """
 
 import time

@@ -55,6 +55,17 @@ def score_setup(market_state):
     elif sentiment in ("NEGATIVE", "BEARISH"):
         sell += 1
 
+    try:
+        from services import critic
+
+        bias = float(critic.score_bias(ms.get("symbol")) or 0.0)
+    except Exception:
+        bias = 0.0
+    if bias > 0:
+        buy += bias
+    elif bias < 0:
+        sell += -bias
+
     return {"buy": buy, "sell": sell}
 
 

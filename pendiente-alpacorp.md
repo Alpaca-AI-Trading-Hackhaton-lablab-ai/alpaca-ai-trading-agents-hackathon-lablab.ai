@@ -89,9 +89,26 @@ Price motor (`/spy`, scheduler) stays as fallback.
 
 ---
 
-## Fuera de este corte (P2+)
+## P2 — done (2026-09-04)
 
-- Un solo endpoint HTTP (fusionar `/execute` + `/bracket/execute`).
-- MCP: `mcp_client.py` aún muerto (qty, no notional).
-- Critic / feedback loop entre fills y decision scoring.
-- Backtesting offline con el mismo gate/risk pipeline.
+Unified `POST /execute` (body `plan` → same path as the old bracket execute;
+otherwise pipeline + `seed_plan` + `dispatch`). `POST /bracket/execute` is an
+alias. Preview stays on `POST /bracket/preview`.
+
+`place_order` in `mcp_client.py` does **not** talk to `alpaca-mcp-server`. It
+computes `notional = qty * last_price` (or accepts `notional=`) and calls
+`dispatch()`. Invalid qty/price → `NO_TRADE`. `get_tools` / `GET /mcp-tools`
+remain debug-only. ReAct still has no `place_order` tool.
+
+Critic is deterministic: parent fills write `invocation_logs` (`agent_id=critic`);
+`score_setup` applies a clamped ±1.0 bias from the last N rows. No rows → 0.
+
+Offline `services/backtest.py`: bars → compact features → `score_setup` +
+`calculate_risk` + `evaluate_gate` + `seed_plan`. Never `submit_*`.
+
+---
+
+## Fuera de este corte (P3+)
+
+- Deploy-key so the private frontend repo can clone itself on the box.
+- Native Alpaca trailing as a bracket leg (still unsupported).

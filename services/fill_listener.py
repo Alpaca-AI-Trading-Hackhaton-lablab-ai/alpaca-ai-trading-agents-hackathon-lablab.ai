@@ -48,6 +48,12 @@ def handle_trade_update(data):
     order_id, client_order_id = _order_ids(data)
     if not order_id and not client_order_id:
         return []
+    try:
+        from services import critic
+
+        critic.record_from_update(data)
+    except Exception as exc:
+        log.warning("critic record: %s", exc)
     return fire_parent(order_id, client_order_id)
 
 

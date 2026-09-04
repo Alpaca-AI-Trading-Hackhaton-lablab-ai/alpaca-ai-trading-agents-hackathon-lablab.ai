@@ -44,6 +44,7 @@ from services.alpaca_service import (
     get_spy_price,
     reset_clients,
 )
+from services.bracket_plan import seed_plan
 from services.mcp_client import get_tools
 from services.news_service import get_market_news
 
@@ -508,6 +509,51 @@ def pipeline_stream(
     )
 
 
+def _extract_plan(body):
+    if not isinstance(body, dict) or not body:
+        return None
+    if isinstance(body.get("plan"), dict):
+        return body["plan"]
+    if body.get("side") and (body.get("size") or body.get("tps") or body.get("sl")):
+        return body
+    return None
+
+
+def _finish_execute(result, symbol=None, decision=None):
+    result = dict(result or {})
+    parked = []
+    if result.get("status") not in ("BLOCKED", "NO_TRADE", "DRY_RUN"):
+        parked = conditional.park_rows(result.get("emulated") or [])
+    if parked:
+        result["parked"] = parked
+    gate = result.get("gate") or {}
+    dec = result.get("decision") or decision or {}
+    _audit(
+        {
+            "symbol": _symbol(symbol or dec.get("symbol")),
+            "action": dec.get("action"),
+            "verdict": gate.get("verdict"),
+            "status": result.get("status"),
+            "notional": gate.get("notional"),
+            "order_id": result.get("order_id"),
+            "reasons": gate.get("reasons"),
+        }
+    )
+    return result
+
+
+def _execute_plan(plan):
+    result = bracket.execute_plan(
+        plan,
+        get_account_info(),
+        get_positions().get("positions", []),
+        get_open_orders(_symbol((plan or {}).get("symbol"))),
+        get_market_clock(),
+        park_emulated=True,
+    )
+    return _finish_execute(result, symbol=(plan or {}).get("symbol"))
+
+
 @app.post("/execute")
 def execute(
     symbol: str = "SPY",
@@ -518,10 +564,14 @@ def execute(
     decision_indicators: str | None = None,
     deep_sentiment: bool | None = None,
     deep_decision: bool | None = None,
+    body: dict | None = Body(None),
 ):
-    """LLM proposes -> deterministic gate authorizes -> executor executes.
-    Nothing reaches the broker unless the gate ALLOWs and the system is armed.
-    `deep` only affects how the proposal is formed; the gate is unchanged."""
+    """One execute surface: optional `plan` in the body, else pipeline + seed_plan.
+    POST /bracket/execute is an alias. Gate + dispatch only."""
+    plan = _extract_plan(body)
+    if plan:
+        return _execute_plan(plan)
+
     merged = _merged_opts(
         sentiment_model,
         decision_model,
@@ -542,28 +592,20 @@ def execute(
         merged["deep_decision"],
     )
     decision = analysis["decision"]
+    ms = analysis.get("market_state") or {}
+    seeded = seed_plan(decision, ms.get("price"), ms.get("atr"))
+    qty = ((seeded or {}).get("size") or {}).get("qty") or 0
+    plan = seeded if seeded and int(qty) >= 1 else None
     result = dispatch(
         decision=decision,
         account=analysis["account"],
         positions=get_positions().get("positions", []),
         open_orders=get_open_orders(),
         clock=get_market_clock(),
+        plan=plan,
         max_credit=scheduler.max_credit(),
     )
-    gate = result.get("gate") or {}
-
-    _audit(
-        {
-            "symbol": _symbol(symbol),
-            "action": (decision or {}).get("action"),
-            "verdict": gate.get("verdict"),
-            "status": result.get("status"),
-            "notional": gate.get("notional"),
-            "order_id": result.get("order_id"),
-            "reasons": gate.get("reasons"),
-        }
-    )
-    return result
+    return _finish_execute(result, symbol=symbol, decision=decision)
 
 
 @app.get("/control")
@@ -648,32 +690,8 @@ def bracket_preview(body: dict = Body(...)):
 
 @app.post("/bracket/execute")
 def bracket_execute(body: dict = Body(...)):
-    plan = body.get("plan") or body
-    result = bracket.execute_plan(
-        plan,
-        get_account_info(),
-        get_positions().get("positions", []),
-        get_open_orders(_symbol((plan or {}).get("symbol"))),
-        get_market_clock(),
-        park_emulated=True,
-    )
-    parked = []
-    if result.get("status") not in ("BLOCKED", "NO_TRADE", "DRY_RUN"):
-        parked = conditional.park_rows(result.get("emulated") or [])
-    _audit(
-        {
-            "symbol": (plan or {}).get("symbol"),
-            "action": (result.get("decision") or {}).get("action"),
-            "verdict": (result.get("gate") or {}).get("verdict"),
-            "status": result.get("status"),
-            "notional": (result.get("gate") or {}).get("notional"),
-            "order_id": result.get("order_id"),
-            "reasons": (result.get("gate") or {}).get("reasons"),
-        }
-    )
-    if parked:
-        result["parked"] = parked
-    return result
+    """Alias of POST /execute with a plan body."""
+    return _execute_plan(_extract_plan(body) or body)
 
 
 @app.get("/conditional-orders")

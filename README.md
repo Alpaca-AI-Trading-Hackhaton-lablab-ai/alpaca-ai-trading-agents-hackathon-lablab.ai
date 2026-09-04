@@ -105,7 +105,7 @@ python -m unittest discover -s tests -v
 | GET | `/bars?symbol=SPY` | Candles + overlays (chart) |
 | GET / PUT | `/settings` | Keys (redacted) + agent models |
 | GET / POST | `/control`, `/control/arm`, `/control/kill` | Arm / kill stay off the LLM path |
-| POST | `/execute?symbol=SPY` | Gate then paper order; default is `DRY_RUN` |
+| POST | `/execute` | Body `{plan}` or query `symbol` (pipeline + seed_plan); then `dispatch`. `/bracket/execute` is an alias. Default `DRY_RUN` |
 
 Do not point this at a live Alpaca account.
 

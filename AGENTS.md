@@ -7,8 +7,8 @@ its `/api` proxy. Style modeled on the `ap-base-fastapi-uv-service` base, focuse
 
 ## Before deploying or making breaking changes
 
-- Read **[`pendiente-alpacorp.md`](pendiente-alpacorp.md)** — P1 is done (tick brackets with
-  integer qty, position-aware risk, fill listener). Remaining work is P2. Research it
+- Read **[`pendiente-alpacorp.md`](pendiente-alpacorp.md)** — P1 and P2 are done
+  (unified `/execute`, MCP via `dispatch`, critic, offline backtest). Research it
   with a lighter model + web search,
   then implement with a capable model. **Edit and `git push` to `main`** these files when
   the backlog or deploy contract changes: `pendiente-alpacorp.md`, this file, `CLAUDE.md`,
@@ -40,9 +40,11 @@ its `/api` proxy. Style modeled on the `ap-base-fastapi-uv-service` base, focuse
 2. **Probabilistic intelligence above, deterministic authority below.** Agents/LLMs only **propose**;
    `agents/execution_gate.py:evaluate_gate()` authorizes. No agent, tool, or LLM loop may submit an
    order or bypass the gate. Nothing reaches the broker except via
-   `agents/execution_agent.py:dispatch()` after `evaluate_gate()`. Surfaces: `POST /execute`,
-   armed scheduler tick, `POST /bracket/execute`, and conditionals (via `execute_plan` → `dispatch`).
-   The graph SSE (`/pipeline`) is preview only and does not dispatch.
+   `agents/execution_agent.py:dispatch()` after `evaluate_gate()`. Surfaces: `POST /execute`
+   (and its `/bracket/execute` alias), armed scheduler tick, and conditionals
+   (via `execute_plan` → `dispatch`). `mcp_client.place_order` also goes through
+   `dispatch()` — it does not call `alpaca-mcp-server`. The graph SSE (`/pipeline`)
+   is preview only and does not dispatch.
 3. **One working order per symbol — no pile-on.** The gate hard-blocks a symbol that already has a
    resting order. Keep that check.
 4. **Arm-to-execute.** `EXECUTE_ENABLED=false` by default → an ALLOW returns `DRY_RUN` (nothing
