@@ -228,6 +228,46 @@ def _fire(row, account, positions, open_orders, clock):
     return result
 
 
+def _parent_ids(plan):
+    plan = plan or {}
+    ids = set()
+    for key in ("parent_order_id", "parent_client_order_id"):
+        val = plan.get(key)
+        if val:
+            ids.add(str(val))
+    for lid in plan.get("parent_leg_ids") or []:
+        if lid:
+            ids.add(str(lid))
+    return ids
+
+
+def fire_parent(order_id, client_order_id=None):
+    """Activate armed emulated rows parked against this parent fill."""
+    keys = {str(k) for k in (order_id, client_order_id) if k}
+    if not keys or not db.is_connected():
+        return []
+    fired = []
+    with db.session() as session:
+        rows = (
+            session.query(db.ConditionalOrder)
+            .filter(db.ConditionalOrder.status == "armed")
+            .all()
+        )
+        matches = [r for r in rows if keys & _parent_ids(r.plan)]
+        if not matches:
+            return []
+        account = get_account_info()
+        positions = get_positions().get("positions", [])
+        clock = get_market_clock()
+        for row in matches:
+            open_orders = get_open_orders(row.symbol)
+            fired.append(
+                {"id": row.id, "result": _fire(row, account, positions, open_orders, clock)}
+            )
+        session.commit()
+    return fired
+
+
 def evaluate_triggers(symbol, last_price, account=None, positions=None, open_orders=None, clock=None):
     """Price motor. Re-gates and uses the same path as /bracket/execute."""
     if not db.is_connected() or last_price is None:

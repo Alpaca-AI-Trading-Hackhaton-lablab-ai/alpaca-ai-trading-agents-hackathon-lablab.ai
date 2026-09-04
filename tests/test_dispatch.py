@@ -161,7 +161,15 @@ class DispatchCallersTest(unittest.TestCase):
             ) as dispatched:
                 with patch("agents.execution_gate.evaluate_gate") as gate_fn:
                     rows = apply_intents(
-                        [{"action": "BUY", "symbol": "SPY", "position_size": 500}],
+                        [
+                            {
+                                "action": "BUY",
+                                "symbol": "SPY",
+                                "position_size": 500,
+                                "last_price": 100,
+                                "atr": 1,
+                            }
+                        ],
                         ACCOUNT,
                         [],
                         CLOCK,
@@ -169,6 +177,8 @@ class DispatchCallersTest(unittest.TestCase):
                     )
         gate_fn.assert_not_called()
         dispatched.assert_called_once()
+        self.assertIsNotNone(dispatched.call_args.kwargs.get("plan"))
+        self.assertEqual(dispatched.call_args.kwargs["plan"]["size"]["qty"], 5)
         self.assertEqual(rows[0]["intent"]["symbol"], "SPY")
         self.assertEqual(open_orders.call_count, 1)
 
@@ -183,7 +193,15 @@ class DispatchCallersTest(unittest.TestCase):
                 },
             ):
                 apply_intents(
-                    [{"action": "BUY", "symbol": "SPY", "position_size": 500}],
+                    [
+                        {
+                            "action": "BUY",
+                            "symbol": "SPY",
+                            "position_size": 500,
+                            "last_price": 100,
+                            "atr": 1,
+                        }
+                    ],
                     ACCOUNT,
                     [],
                     CLOCK,

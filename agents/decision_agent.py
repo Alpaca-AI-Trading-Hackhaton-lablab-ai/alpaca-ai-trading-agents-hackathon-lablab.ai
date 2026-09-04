@@ -257,15 +257,29 @@ def make_decision(market_state, risk):
     else:
         action = "HOLD"
 
+    try:
+        existing = float(risk.get("existing_qty") or 0)
+    except (TypeError, ValueError):
+        existing = 0.0
+    blocked = None
+    if action == "BUY" and existing > 0:
+        action = "HOLD"
+        blocked = "already long"
+    elif action == "SELL" and existing < 0:
+        action = "HOLD"
+        blocked = "already short"
+
     return {
         "symbol": market_state.get("symbol"),
         "action": action,
-        "position_size": risk.get("position_size"),
+        "position_size": 0 if blocked else risk.get("position_size"),
         "technical_signal": market_state.get("technical_signal"),
         "sentiment": market_state.get("sentiment"),
         "risk_level": risk.get("risk_level"),
         "scores": scores,
         "signals": _signals(market_state),
+        "existing_qty": existing,
+        "blocked_reason": blocked or risk.get("blocked_reason"),
     }
 
 

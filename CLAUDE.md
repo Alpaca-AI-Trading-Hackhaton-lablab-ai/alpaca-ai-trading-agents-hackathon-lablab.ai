@@ -13,8 +13,8 @@ deterministic gate** and **paper-only**. The React dashboard `tradelix-poc-web` 
 
 ## Before deploying or making breaking changes
 
-Read **[`pendiente-alpacorp.md`](pendiente-alpacorp.md)** — open P1 items with current
-Alpaca API notes (tick brackets, position-aware risk, fill lifecycle). Research that file
+Read **[`pendiente-alpacorp.md`](pendiente-alpacorp.md)** — P1 is done; P2 remains.
+Alpaca note: native brackets need integer `qty`, not `notional`. Research that file
 with a lighter model + web search, then implement with a capable model. **Edit and push
 to `main`:** `pendiente-alpacorp.md`, `AGENTS.md`, this file, and the sibling
 `tradelix-poc-web/AGENTS.md`. Deploy only after those pushes.

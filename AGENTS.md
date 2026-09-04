@@ -7,8 +7,9 @@ its `/api` proxy. Style modeled on the `ap-base-fastapi-uv-service` base, focuse
 
 ## Before deploying or making breaking changes
 
-- Read **[`pendiente-alpacorp.md`](pendiente-alpacorp.md)** — open P1 items (tick brackets,
-  position-aware risk, fill lifecycle). Research it with a lighter model + web search,
+- Read **[`pendiente-alpacorp.md`](pendiente-alpacorp.md)** — P1 is done (tick brackets with
+  integer qty, position-aware risk, fill listener). Remaining work is P2. Research it
+  with a lighter model + web search,
   then implement with a capable model. **Edit and `git push` to `main`** these files when
   the backlog or deploy contract changes: `pendiente-alpacorp.md`, this file, `CLAUDE.md`,
   and `../tradelix-poc-web/AGENTS.md`. Local-only edits do not count.

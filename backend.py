@@ -18,7 +18,7 @@ from agents.feature_agent import get_market_features
 from agents.indicator_engine import compute_pack, parse_indicators
 from agents.nodes import PIPELINE_KEYS, build_pipeline
 from agents.technical_agent import technical_analysis
-from services import bracket, cache, conditional, config, db, logs, persist, scheduler, usage_meter
+from services import bracket, cache, conditional, config, db, fill_listener, logs, persist, scheduler, usage_meter
 from services.schemas import (
     AccountOut,
     AuditOut,
@@ -55,6 +55,7 @@ async def lifespan(_app):
     load_dotenv()
     db.connect()
     cache.connect()
+    fill_listener.start()
     task = asyncio.create_task(scheduler.loop())
     yield
     task.cancel()
@@ -62,6 +63,7 @@ async def lifespan(_app):
         await task
     except asyncio.CancelledError:
         pass
+    fill_listener.stop()
     cache.close()
     db.close()
 

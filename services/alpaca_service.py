@@ -236,10 +236,20 @@ def get_spy_bars(symbol="SPY", timeframe="1Day", limit=200):
         return _demo_bars(symbol, timeframe=tf_key, limit=limit)
 
 
+def _leg_ids(order):
+    ids = []
+    for leg in getattr(order, "legs", None) or []:
+        lid = getattr(leg, "id", None)
+        if lid:
+            ids.append(str(lid))
+    return ids
+
+
 def _order_dict(order):
     # Normaliza un objeto Order de alpaca-py a un dict serializable.
     return {
         "order_id": str(order.id),
+        "client_order_id": getattr(order, "client_order_id", None),
         "symbol": order.symbol,
         "side": str(order.side).split(".")[-1].lower(),
         "status": str(order.status).split(".")[-1].lower(),
@@ -254,6 +264,7 @@ def _order_dict(order):
         "submitted_at": (
             order.submitted_at.isoformat() if order.submitted_at else None
         ),
+        "leg_ids": _leg_ids(order),
     }
 
 
@@ -297,9 +308,25 @@ def submit_bracket_order(
     limit_price=None,
     qty=None,
 ):
-    """Paper bracket: 1 entry + 1 TP (limit) + 1 SL (stop). _assert_paper intact."""
+    """Paper bracket: 1 entry + 1 TP (limit) + 1 SL (stop). Integer qty only.
+
+    Alpaca rejects notional/fractional combined with order_class=bracket.
+    """
     symbol = _symbol(symbol)
     _assert_paper()
+
+    share_qty = int(float(qty)) if qty is not None else 0
+    if share_qty < 1:
+        return {
+            "status": "rejected",
+            "mode": "paper",
+            "symbol": symbol,
+            "side": str(side).lower(),
+            "qty": share_qty,
+            "notional": float(notional) if notional is not None else None,
+            "order_class": "bracket",
+            "reason": "bracket needs ≥1 share (Alpaca rejects notional brackets)",
+        }
 
     if not _has_alpaca_credentials():
         return {
@@ -307,8 +334,10 @@ def submit_bracket_order(
             "mode": "demo",
             "symbol": symbol,
             "side": str(side).lower(),
+            "qty": share_qty,
             "notional": float(notional) if notional is not None else None,
             "order_class": "bracket",
+            "leg_ids": [],
             "take_profit": {"limit_price": take_profit_price},
             "stop_loss": {"stop_price": stop_loss_price},
             "warning": "Missing Alpaca paper credentials",
@@ -320,15 +349,12 @@ def submit_bracket_order(
     common = {
         "symbol": symbol,
         "side": order_side,
+        "qty": float(share_qty),
         "time_in_force": TimeInForce.DAY,
         "order_class": OrderClass.BRACKET,
         "take_profit": tp,
         "stop_loss": sl,
     }
-    if qty is not None:
-        common["qty"] = float(qty)
-    else:
-        common["notional"] = float(notional)
 
     if str(entry_type).lower() == "limit" and limit_price is not None:
         request = LimitOrderRequest(limit_price=float(limit_price), **common)

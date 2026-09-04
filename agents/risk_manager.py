@@ -24,6 +24,22 @@ def _num(value, default=None):
         return default
 
 
+def signed_qty(positions, symbol):
+    """+qty long, −qty short. Missing position → 0."""
+    symbol = str(symbol or "").upper()
+    if not symbol:
+        return 0.0
+    for pos in positions or []:
+        if str((pos or {}).get("symbol") or "").upper() != symbol:
+            continue
+        qty = _num((pos or {}).get("qty"), 0.0) or 0.0
+        side = str((pos or {}).get("side") or "").lower()
+        if side in ("short", "sell") or qty < 0:
+            return -abs(qty)
+        return abs(qty)
+    return 0.0
+
+
 def calculate_risk(
     account_balance,
     confidence,
@@ -31,10 +47,20 @@ def calculate_risk(
     price=None,
     scores=None,
     max_credit=None,
+    positions=None,
+    symbol=None,
+    intended_action=None,
 ):
     account_balance = float(account_balance or 100000)
     confidence = float(confidence or 0)
     scores = scores or {"buy": 0.0, "sell": 0.0}
+    existing = signed_qty(positions, symbol)
+    blocked_reason = None
+    action = str(intended_action or "").upper()
+    if action == "BUY" and existing > 0:
+        blocked_reason = "already long"
+    elif action == "SELL" and existing < 0:
+        blocked_reason = "already short"
 
     if confidence >= 85:
         risk_percent = 0.03
@@ -57,12 +83,15 @@ def calculate_risk(
         atr_pct = atr_n / price_n
         volatility_factor = _clamp(_REF_ATR_PCT / atr_pct, 0.5, 1.5)
 
-    position_size = account_balance * risk_percent * confidence_factor * volatility_factor
-    position_size = min(position_size, account_balance * _MAX_EQUITY_PCT)
-    cap = _num(max_credit)
-    if cap is not None and cap > 0:
-        position_size = min(position_size, cap)
-    position_size = round(position_size, 2)
+    if blocked_reason:
+        position_size = 0.0
+    else:
+        position_size = account_balance * risk_percent * confidence_factor * volatility_factor
+        position_size = min(position_size, account_balance * _MAX_EQUITY_PCT)
+        cap = _num(max_credit)
+        if cap is not None and cap > 0:
+            position_size = min(position_size, cap)
+        position_size = round(position_size, 2)
 
     max_loss = round(position_size * 0.05, 2)
     take_profit = round(position_size * 0.10, 2)
@@ -76,6 +105,8 @@ def calculate_risk(
         "take_profit": take_profit,
         "confidence_factor": round(confidence_factor, 4),
         "volatility_factor": round(volatility_factor, 4),
+        "existing_qty": existing,
+        "blocked_reason": blocked_reason,
     }
 
 
@@ -91,6 +122,8 @@ class RiskAgent(Agent):
             price=ms.get("price"),
             scores=score_setup(ms),
             max_credit=ctx.get("max_credit"),
+            positions=ctx.get("positions") or [],
+            symbol=ctx.get("symbol") or ms.get("symbol"),
         )
 
     def message(self, out):

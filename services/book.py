@@ -29,6 +29,7 @@ from services.alpaca_service import (
     get_open_orders,
     get_positions,
 )
+from services.bracket_plan import seed_plan
 
 
 def _compact_ms(ms):
@@ -38,7 +39,7 @@ def _compact_ms(ms):
     return ms
 
 
-def snapshot_symbol(symbol, account, sentiment, indicators, max_credit):
+def snapshot_symbol(symbol, account, sentiment, indicators, max_credit, positions=None):
     ctx = {
         "symbol": symbol,
         "account": account,
@@ -46,6 +47,7 @@ def snapshot_symbol(symbol, account, sentiment, indicators, max_credit):
         "indicators": indicators,
         "max_credit": max_credit,
         "models": {},
+        "positions": positions or [],
     }
     ctx["features"] = FeatureAgent().run(ctx)
     ctx["technical"] = TechnicalAgent().run(ctx)
@@ -71,26 +73,61 @@ def _decision_from_intent(intent):
     }
 
 
-def apply_intents(intents, account, positions, clock, max_credit):
+def _plan_for_intent(intent, market_by_symbol):
+    action = str((intent or {}).get("action") or "").upper()
+    if action not in ("BUY", "SELL"):
+        return None
+    symbol = str((intent or {}).get("symbol") or "").upper()
+    ms = (market_by_symbol or {}).get(symbol) or {}
+    last_price = intent.get("last_price") or ms.get("price")
+    atr = intent.get("atr") if intent.get("atr") is not None else ms.get("atr")
+    return seed_plan(_decision_from_intent(intent), last_price, atr)
+
+
+def apply_intents(intents, account, positions, clock, max_credit, market_by_symbol=None):
+    from services import conditional
+
     results = []
     open_orders = get_open_orders()
     cancels = [i for i in intents if (i or {}).get("action") == "CANCEL"]
     places = [i for i in intents if (i or {}).get("action") in ("BUY", "SELL")]
+    market_by_symbol = market_by_symbol or {}
 
     def _one(intent):
         nonlocal open_orders
+        plan = _plan_for_intent(intent, market_by_symbol)
+        if str((intent or {}).get("action") or "").upper() in ("BUY", "SELL"):
+            if plan is None:
+                return {
+                    "intent": intent,
+                    "status": "NO_TRADE",
+                    "reason": "no price to seed a bracket",
+                    "decision": _decision_from_intent(intent),
+                }
+            qty = ((plan.get("size") or {}).get("qty")) or 0
+            if int(qty) < 1:
+                return {
+                    "intent": intent,
+                    "status": "NO_TRADE",
+                    "reason": "bracket needs ≥1 share",
+                    "decision": _decision_from_intent(intent),
+                    "plan": plan,
+                }
         out = dispatch(
             decision=_decision_from_intent(intent),
             account=account,
             positions=positions,
             open_orders=open_orders,
             clock=clock,
+            plan=plan,
             max_credit=max_credit,
         )
-        item = {"intent": intent, **out}
         if out.get("status") not in ("NO_TRADE", "BLOCKED", "DRY_RUN"):
+            parked = conditional.park_rows(out.get("emulated") or [])
+            if parked:
+                out["parked"] = parked
             open_orders = get_open_orders()
-        return item
+        return {"intent": intent, **out}
 
     for intent in cancels:
         results.append(_one(intent))
@@ -148,7 +185,9 @@ def run_tick(focus=None, max_credit=None, universe=None, indicators=None, models
     book = []
     focus_row = None
     for symbol in universe:
-        row = snapshot_symbol(symbol, account, sentiment, indicators, max_credit)
+        row = snapshot_symbol(
+            symbol, account, sentiment, indicators, max_credit, positions=positions
+        )
         book.append(
             {
                 "symbol": symbol,
@@ -179,7 +218,10 @@ def run_tick(focus=None, max_credit=None, universe=None, indicators=None, models
     intents = decision.get("intents") or intents_from_book(
         book, open_orders, config.MAX_WORKING_ORDERS
     )
-    results = apply_intents(intents, account, positions, clock, max_credit)
+    market_by_symbol = {row["symbol"]: row["market_state"] for row in book}
+    results = apply_intents(
+        intents, account, positions, clock, max_credit, market_by_symbol=market_by_symbol
+    )
 
     focus_ctx = (focus_row or {}).get("ctx") or {}
     focus_intents = [i for i in intents if i.get("symbol") == focus]

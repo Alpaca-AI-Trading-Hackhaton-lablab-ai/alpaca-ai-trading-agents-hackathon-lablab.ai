@@ -26,8 +26,21 @@ def _notional(plan):
     return _num(size.get("notional"), 0.0) or 0.0
 
 
+def share_qty(notional, price):
+    """Whole shares for a native bracket. Alpaca rejects notional+bracket."""
+    n = _num(notional, 0.0) or 0.0
+    px = _num(price)
+    if px is None or px <= 0 or n <= 0:
+        return 0
+    return int(n // px)
+
+
 def seed_plan(decision, last_price, atr=None, fees_frac=0.0):
-    """BUY/SELL + notional from the decision; SL = 1 ATR, TP1 = 2R. HOLD → None."""
+    """BUY/SELL + notional from the decision; SL = 1 ATR, TP1 = 2R. HOLD → None.
+
+    Also sets integer `size.qty` (floor notional/entry). Native brackets cannot
+    use notional/fractional — qty < 1 means the caller must not submit.
+    """
     action = str((decision or {}).get("action") or "HOLD").upper()
     symbol = (decision or {}).get("symbol") or "SPY"
     notional = _num((decision or {}).get("position_size"), 0.0) or 0.0
@@ -44,10 +57,11 @@ def seed_plan(decision, last_price, atr=None, fees_frac=0.0):
     else:
         sl = round(entry + atr_n, 4)
         tp = round(entry - 2 * atr_n, 4)
+    qty = share_qty(notional, entry)
     return {
         "symbol": str(symbol).upper(),
         "side": side,
-        "size": {"notional": round(notional, 2)},
+        "size": {"notional": round(notional, 2), "qty": qty},
         "entry": {"role": "entry", "type": "market", "price": round(entry, 4)},
         "tps": [{"role": "tp", "type": "limit", "price": tp, "size_pct": 100}],
         "sl": {
@@ -169,11 +183,15 @@ def would_call(plan, trigger=None):
             }
         )
     else:
+        qty = (plan.get("size") or {}).get("qty")
+        if qty is None:
+            qty = share_qty(notional, _entry_price(plan))
         call = {
             "tool": "place_stock_order",
             "order_class": "bracket",
             "symbol": symbol,
             "side": side,
+            "qty": qty,
             "notional": notional,
             "entry": (plan.get("entry") or {}).get("type", "market"),
         }

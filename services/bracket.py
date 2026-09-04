@@ -9,6 +9,7 @@ from services.alpaca_service import (
 )
 from services.bracket_plan import (
     break_even_price,
+    share_qty,
     validate_plan,
     would_call,
 )
@@ -108,11 +109,13 @@ def _submit_native(plan):
     side = plan.get("side")
     size = plan.get("size") or {}
     notional = size.get("notional") or 0
+    entry = plan.get("entry") or {}
     qty = size.get("qty")
+    if qty is None:
+        qty = share_qty(notional, entry.get("price"))
     tps = list(plan.get("tps") or [])
     sl = plan.get("sl") or {}
     sl_mode = str(sl.get("mode") or "fixed").lower()
-    entry = plan.get("entry") or {}
     if sl_mode == "trailing" and not tps:
         return submit_trailing_stop_order(
             symbol,
@@ -155,7 +158,19 @@ def submit_armed(plan, park_emulated=True):
         return _normalize_submit(result)
     result = _submit_native(plan)
     out = _normalize_submit(result)
-    out["emulated"] = emulated_rows(plan) if park_emulated else []
+    rows = emulated_rows(plan) if park_emulated else []
+    parent_id = out.get("order_id")
+    client_id = result.get("client_order_id")
+    legs = result.get("leg_ids") or []
+    for row in rows:
+        stamped = dict(row.get("plan") or {})
+        stamped["parent_order_id"] = parent_id
+        stamped["parent_client_order_id"] = client_id
+        stamped["parent_leg_ids"] = list(legs)
+        row["plan"] = stamped
+    out["emulated"] = rows
+    out["leg_ids"] = legs
+    out["client_order_id"] = client_id
     return out
 
 
@@ -194,6 +209,9 @@ def _normalize_submit(result):
         "filled_qty": result.get("filled_qty"),
         "filled_avg_price": result.get("filled_avg_price"),
         "notional": result.get("notional"),
+        "qty": result.get("qty"),
+        "client_order_id": result.get("client_order_id"),
+        "leg_ids": result.get("leg_ids") or [],
         "mode": result.get("mode"),
         "reason": result.get("warning") or result.get("reason"),
     }
